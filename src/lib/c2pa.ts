@@ -8,6 +8,7 @@ import { isCrJson, legacyToCrJson, getActiveManifestValidationStatus, type CrJso
 type ReaderHandle = {
   manifestStore: () => Promise<CrJson>
   free: () => Promise<void>
+  resourceToBytes?: (uri: string) => Promise<Uint8Array>
 }
 
 type C2paInstance = {
@@ -51,6 +52,9 @@ const importModule = new Function('modulePath', 'return import(modulePath)') as 
 type ITL = { allowed: string; anchors: string }
 
 let c2paInstance: C2paInstance | null = null
+// Cached packaged-SDK instance used as fallback for thumbnail resolution when
+// the local WASM reader doesn't expose resourceToBytes.
+let packagedSdkPromise: ReturnType<typeof createC2pa> | null = null
 let mainTrustListPem: string | null = null
 let itl: ITL | null = null
 
@@ -260,6 +264,7 @@ async function initC2pa(): Promise<C2paInstance> {
               free: async () => {
                 await reader.free()
               },
+              ...(reader.resourceToBytes && { resourceToBytes: reader.resourceToBytes.bind(reader) }),
             }
           },
         },
@@ -488,6 +493,70 @@ async function runTrustValidationFlow(
   }
 }
 
+/**
+ * When using the local WASM reader (which doesn't expose `resourceToBytes`),
+ * fall back to a packaged-SDK reader from the same file solely for resource resolution.
+ * The packaged SDK instance is cached so only one Web Worker is created.
+ */
+async function enrichThumbnailsViaPackagedSdk(crJson: CrJson, file: Blob, mimeType: string): Promise<void> {
+  // Quick check: any unresolved thumbnail identifiers?
+  let hasUnresolved = false
+  outer: for (const manifest of (crJson.manifests ?? [])) {
+    const assertions = (manifest.assertions ?? {}) as Record<string, Record<string, unknown>>
+    for (const [key, assertion] of Object.entries(assertions)) {
+      if (key.startsWith('c2pa.thumbnail') && assertion && !assertion.data && typeof assertion.identifier === 'string') {
+        hasUnresolved = true
+        break outer
+      }
+    }
+  }
+  if (!hasUnresolved) return
+
+  try {
+    if (!packagedSdkPromise) {
+      packagedSdkPromise = createC2pa({ wasmSrc: `${base}c2pa.wasm` })
+    }
+    const sdk = await packagedSdkPromise
+    const reader = await sdk.reader.fromBlob(mimeType, file)
+    if (!reader || !reader.resourceToBytes) return
+    try {
+      await enrichThumbnails(crJson, reader.resourceToBytes.bind(reader))
+    } finally {
+      await reader.free()
+    }
+  } catch (e) {
+    console.warn('[thumbnails] Could not resolve thumbnails via packaged SDK:', e)
+  }
+}
+
+/**
+ * Resolve JUMBF `identifier` URIs in thumbnail assertions to inline base64 `data` fields.
+ * Only runs when the reader exposes `resourceToBytes`; silently skips failures.
+ */
+async function enrichThumbnails(crJson: CrJson, resourceToBytes: (uri: string) => Promise<Uint8Array>): Promise<void> {
+  for (const manifest of (crJson.manifests ?? [])) {
+    const assertions = (manifest.assertions ?? {}) as Record<string, Record<string, unknown>>
+    for (const [key, assertion] of Object.entries(assertions)) {
+      if (!key.startsWith('c2pa.thumbnail') || !assertion || typeof assertion !== 'object') continue
+      if (assertion.data) continue // already inlined
+      const identifier = assertion.identifier
+      if (typeof identifier !== 'string') continue
+      try {
+        const bytes = await resourceToBytes(identifier)
+        // Convert to base64 in chunks to avoid call-stack limits on large thumbnails
+        const chunkSize = 8192
+        let binary = ''
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+        }
+        assertion.data = `b64'${btoa(binary)}'`
+      } catch {
+        // Non-fatal: skip thumbnails we can't resolve
+      }
+    }
+  }
+}
+
 async function extractCrJsonWithMetadata(file: File, testCertificates: string[] = []): Promise<ExtractedCrJsonResult> {
   const mimeType = resolveMimeType(file)
   console.log('🔍 Starting file processing for:', file.name, 'Type:', file.type, mimeType !== file.type ? `(remapped to ${mimeType})` : '')
@@ -500,7 +569,13 @@ async function extractCrJsonWithMetadata(file: File, testCertificates: string[] 
     const reader = await c2pa.reader.fromBlob(mimeType, file, settings)
     if (!reader) return null
     try {
-      return await reader.manifestStore()
+      const crJson = await reader.manifestStore()
+      if (reader.resourceToBytes) {
+        await enrichThumbnails(crJson, reader.resourceToBytes.bind(reader))
+      } else {
+        await enrichThumbnailsViaPackagedSdk(crJson, file, mimeType)
+      }
+      return crJson
     } finally {
       await reader.free()
     }
@@ -574,7 +649,13 @@ async function extractSidecarWithAssetCrJsonWithMetadata(
     const reader = await fromSidecarAndBlob(sidecarBytes, assetMimeType, asset, settings)
     if (!reader) return null
     try {
-      return await reader.manifestStore()
+      const crJson = await reader.manifestStore()
+      if (reader.resourceToBytes) {
+        await enrichThumbnails(crJson, reader.resourceToBytes.bind(reader))
+      } else {
+        await enrichThumbnailsViaPackagedSdk(crJson, asset, assetMimeType)
+      }
+      return crJson
     } finally {
       await reader.free()
     }

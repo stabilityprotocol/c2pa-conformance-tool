@@ -194,8 +194,8 @@ function extractIngredients(
     if (!rawValue || typeof rawValue !== 'object') continue
     const value = rawValue as Record<string, unknown>
 
-    const activeManifest = (value.activeManifest ?? {}) as Record<string, unknown>
-    const url = typeof activeManifest.url === 'string' ? activeManifest.url : undefined
+    const manifestRef = (value.c2pa_manifest ?? value.activeManifest ?? {}) as Record<string, unknown>
+    const url = typeof manifestRef.url === 'string' ? manifestRef.url : undefined
     const relationship = typeof value.relationship === 'string' ? value.relationship : undefined
 
     if (!url) continue
@@ -214,15 +214,24 @@ function extractIngredients(
 }
 
 /**
- * Extract the bare `urn:c2pa:…` identifier from an activeManifest URL,
- * stripping any JUMBF path suffix (e.g. `…/c2pa.assertions/…`).
+ * Extract the manifest label from a JUMBF URL.
+ * Handles both new-style (urn:c2pa:UUID) and old-style (self#jumbf=/c2pa/<label>) formats.
  */
 function parseParentUrn(url: string): string {
-  const idx = url.indexOf('urn:c2pa:')
-  if (idx < 0) return url
-  const tail = url.slice(idx)
-  const slash = tail.indexOf('/')
-  return slash >= 0 ? tail.slice(0, slash) : tail
+  const prefix = '/c2pa/'
+  const i = url.indexOf(prefix)
+  if (i >= 0) {
+    const after = url.slice(i + prefix.length)
+    const slash = after.indexOf('/')
+    return slash >= 0 ? after.slice(0, slash) : after
+  }
+  const urnIdx = url.indexOf('urn:c2pa:')
+  if (urnIdx >= 0) {
+    const tail = url.slice(urnIdx)
+    const slash = tail.indexOf('/')
+    return slash >= 0 ? tail.slice(0, slash) : tail
+  }
+  return url
 }
 
 function buildIndexMapping(manifests: CrJsonManifestEntry[]): Map<string, number> {
@@ -280,8 +289,8 @@ function resolveMimeTypes(
       if (!key.startsWith('c2pa.ingredient')) continue
       if (!rawValue || typeof rawValue !== 'object') continue
       const value = rawValue as Record<string, unknown>
-      const activeManifest = (value.activeManifest ?? {}) as Record<string, unknown>
-      const url = typeof activeManifest.url === 'string' ? activeManifest.url : undefined
+      const manifestRef = (value.c2pa_manifest ?? value.activeManifest ?? {}) as Record<string, unknown>
+      const url = typeof manifestRef.url === 'string' ? manifestRef.url : undefined
       const fmt = value['dc:format']
       if (!url || typeof fmt !== 'string' || fmt.length === 0) continue
 

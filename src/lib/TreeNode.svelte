@@ -6,6 +6,7 @@
   export let isRoot = false
   export let fileSrc: string | undefined = undefined
   export let fileMimeType: string | undefined = undefined
+  export let fileName: string | undefined = undefined
 
   // The image/media to show inside the card
   $: previewSrc = fileSrc ?? node.thumbnailSrc
@@ -54,10 +55,7 @@
     <!-- Top-left badge: C2PA icon + date -->
     {#if node.date}
       <div class="absolute top-2 left-2 flex items-center gap-1 bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-2 py-1 shadow-sm">
-        <!-- C2PA "cr" mark -->
-        <svg class="w-3.5 h-3.5 flex-shrink-0 text-gray-700 dark:text-gray-300" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true">
-          <path d="M9 1.5A7.5 7.5 0 1 0 16.5 9 7.508 7.508 0 0 0 9 1.5zm0 13.5A6 6 0 1 1 15 9 6.007 6.007 0 0 1 9 15zM7.875 6.375A2.628 2.628 0 0 0 5.25 9a2.628 2.628 0 0 0 2.625 2.625.75.75 0 0 1 0 1.5A4.13 4.13 0 0 1 3.75 9a4.13 4.13 0 0 1 4.125-4.125.75.75 0 0 1 0 1.5zm5.25 0a.75.75 0 0 1-.75.75A2.628 2.628 0 0 0 9.75 9a2.628 2.628 0 0 0 2.625 2.625.75.75 0 0 1 0 1.5A4.13 4.13 0 0 1 8.25 9a4.13 4.13 0 0 1 4.125-4.125.75.75 0 0 1 .75.75z"/>
-        </svg>
+        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
         <span class="text-xs font-medium text-gray-700 dark:text-gray-300 leading-none">{node.date}</span>
       </div>
     {/if}
@@ -71,7 +69,7 @@
   <!-- Label below card -->
   <div class="mt-2 text-center max-w-[13rem] px-1">
     <p class="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
-      {isRoot ? 'This File' : (node.claimGenerator ?? 'Unknown')}
+      {isRoot ? (fileName ?? 'This File') : (node.claimGenerator ?? 'Unknown')}
     </p>
     {#if node.inceptions.length > 0 || node.transformations.length > 0}
       <div class="flex flex-wrap justify-center gap-0.5 mt-1">
