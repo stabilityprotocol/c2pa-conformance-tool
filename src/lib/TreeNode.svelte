@@ -8,8 +8,32 @@
   export let fileMimeType: string | undefined = undefined
   export let fileName: string | undefined = undefined
 
-  // The image/media to show inside the card
   $: previewSrc = fileSrc ?? node.thumbnailSrc
+
+  // One width per child column — populated via bind:clientWidth.
+  let colWidths: number[] = []
+  $: if (node.children.length !== colWidths.length) {
+    colWidths = new Array(node.children.length).fill(0)
+  }
+
+  const CONN_H = 56 // height of the connector SVG
+
+  // One cubic-bezier path per child. Vertical tangents at both ends produce
+  // smooth S-curves (or a straight line when child is directly below parent).
+  $: connPaths = (() => {
+    if (!colWidths.length || colWidths.some(w => w === 0)) return []
+    const totalW = colWidths.reduce((a, b) => a + b, 0)
+    const px = totalW / 2      // parent x (center of row)
+    const mid = CONN_H / 2
+    let x = 0
+    return colWidths.map(w => {
+      const cx = x + w / 2    // child x (center of this column)
+      x += w
+      return `M ${px} 0 C ${px} ${mid}, ${cx} ${mid}, ${cx} ${CONN_H}`
+    })
+  })()
+
+  $: connW = colWidths.reduce((a, b) => a + b, 0)
 </script>
 
 <div class="flex flex-col items-center min-w-0">
@@ -85,21 +109,22 @@
 
   <!-- Subtree -->
   {#if node.children.length > 0}
-    <!-- Stem -->
-    <div class="h-8 w-0.5 bg-gray-200 dark:bg-gray-700 flex-shrink-0 mt-2"></div>
+    <!-- SVG connector: one bezier curve from parent-center to each child-center -->
+    <svg
+      width={connW || 1}
+      height={CONN_H}
+      class="mt-2 flex-shrink-0 overflow-visible text-gray-300 dark:text-gray-600"
+      aria-hidden="true"
+    >
+      {#each connPaths as d}
+        <path {d} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      {/each}
+    </svg>
 
-    <!-- Children row -->
-    <div class="relative flex flex-row">
-      {#if node.children.length > 1}
-        <div
-          class="absolute top-0 h-0.5 bg-gray-200 dark:bg-gray-700"
-          style="left: calc(100% / {2 * node.children.length}); right: calc(100% / {2 * node.children.length})"
-        ></div>
-      {/if}
-
-      {#each node.children as child}
-        <div class="flex flex-col items-center px-3">
-          <div class="h-8 w-0.5 bg-gray-200 dark:bg-gray-700 flex-shrink-0"></div>
+    <!-- Children row — no individual stems, the SVG handles the full span -->
+    <div class="flex flex-row">
+      {#each node.children as child, i}
+        <div class="flex flex-col items-center px-3" bind:clientWidth={colWidths[i]}>
           <svelte:self node={child} {onZoom} isRoot={false} />
         </div>
       {/each}

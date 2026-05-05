@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
   import TreeNode from './TreeNode.svelte'
   import type { OverviewNode, ConformanceReport, CrJsonManifestEntry } from './types'
   import type { SignalsRubricResult } from './rubrics/types'
@@ -40,15 +40,24 @@
 
   // ── Pan / zoom ────────────────────────────────────────────────────────
 
-  const MIN_ZOOM = 0.2
+  const MIN_ZOOM = 0.1
   const MAX_ZOOM = 3
+  const FIT_PAD = 48 // px padding around tree in fit view
 
   let canvasEl: HTMLDivElement
+  let contentEl: HTMLDivElement
   let containerWidth = 0
+  let canvasHeight = 400  // updated by fitToTree()
 
-  let panX = 24
-  let panY = 40
+  let panX = 0
+  let panY = FIT_PAD
   let zoom = 1
+
+  // Stored fit-view state — reset button returns here
+  let _fitPanX = 0
+  let _fitPanY = FIT_PAD
+  let _fitZoom = 1
+  let _fitHeight = 400
 
   let isDragging = false
   let _dragStartX = 0
@@ -56,13 +65,49 @@
   let _dragStartPanX = 0
   let _dragStartPanY = 0
 
-  // Center when a new file loads. Intentionally NOT on `signals` arrival so pan state survives.
-  $: if (report && containerWidth > 0) resetView()
+  // Refit when report or container width changes.
+  // NOT on `signals` arrival so the user's pan state survives that async update.
+  $: if (report && containerWidth > 0) tick().then(fitToTree)
+
+  async function fitToTree() {
+    if (!contentEl || !canvasEl || !containerWidth) return
+    await tick() // ensure latest tree is in the DOM
+
+    // offsetWidth/Height give layout size before CSS transform — exactly what we need.
+    const naturalW = contentEl.offsetWidth
+    const naturalH = contentEl.offsetHeight
+    if (naturalW === 0 || naturalH === 0) return
+
+    // Max canvas height = whatever space is left between the canvas top and the viewport
+    // bottom, so the zoom controls are always visible without scrolling.
+    const canvasTop = canvasEl.getBoundingClientRect().top
+    const maxHeight = Math.max(300, Math.floor(window.innerHeight - canvasTop - 16))
+
+    const fitZoom = Math.min(
+      1,
+      (containerWidth - FIT_PAD * 2) / naturalW,
+      (maxHeight - FIT_PAD * 2) / naturalH,
+    )
+    const fitHeight = Math.min(maxHeight, Math.round(naturalH * fitZoom + FIT_PAD * 2))
+    const fitPanX = (containerWidth - naturalW * fitZoom) / 2
+    const fitPanY = (fitHeight - naturalH * fitZoom) / 2
+
+    _fitPanX = fitPanX
+    _fitPanY = fitPanY
+    _fitZoom = fitZoom
+    _fitHeight = fitHeight
+
+    panX = fitPanX
+    panY = fitPanY
+    zoom = fitZoom
+    canvasHeight = fitHeight
+  }
 
   function resetView() {
-    panX = Math.max(24, (containerWidth - 208) / 2)
-    panY = 40
-    zoom = 1
+    panX = _fitPanX
+    panY = _fitPanY
+    zoom = _fitZoom
+    canvasHeight = _fitHeight
   }
 
   function onMouseDown(e: MouseEvent) {
@@ -286,7 +331,7 @@
     bind:clientWidth={containerWidth}
     use:touchAction
     class="relative w-full overflow-hidden rounded-2xl"
-    style="height: 520px; cursor: {isDragging ? 'grabbing' : 'grab'}; background-color: var(--canvas-bg, #f8f9fb);"
+    style="height: {canvasHeight}px; cursor: {isDragging ? 'grabbing' : 'grab'}; background-color: var(--canvas-bg, #f8f9fb);"
     role="application"
     aria-label="Provenance tree — drag to pan, scroll to zoom"
     on:mousedown={onMouseDown}
@@ -295,29 +340,15 @@
     on:mouseleave={onMouseUp}
     on:wheel|preventDefault={onWheel}
   >
-    <!-- Dot-grid texture -->
-    <svg
-      class="absolute inset-0 w-full h-full pointer-events-none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-    >
-      <defs>
-        <pattern id="dot-grid" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-          <circle cx="1" cy="1" r="1" fill="currentColor" class="text-gray-300 dark:text-gray-600" opacity="0.6" />
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#dot-grid)" />
-    </svg>
-
-    <!-- Dark-mode canvas background (Tailwind can't target CSS variables easily) -->
+    <!-- Canvas background -->
     <div class="absolute inset-0 bg-gray-50 dark:bg-gray-900/60 pointer-events-none rounded-2xl"></div>
 
     <!-- Tree content (panned and scaled) -->
     <div
+      bind:this={contentEl}
       style="position: absolute; top: 0; left: 0;
              transform: translate({panX}px, {panY}px) scale({zoom});
-             transform-origin: 0 0;
-             will-change: transform;"
+             transform-origin: 0 0;"
     >
       <TreeNode
         node={tree}
