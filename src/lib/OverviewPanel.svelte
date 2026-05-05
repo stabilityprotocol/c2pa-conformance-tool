@@ -18,19 +18,15 @@
   onDestroy(() => { if (fileSrc) URL.revokeObjectURL(fileSrc) })
 
   let signals: SignalsRubricResult | null = null
-  let focusHistory: number[] = [0]
 
-  // Reload signals and reset focus whenever report changes
+  // Reload signals whenever report changes
   $: {
     const current = report
     signals = null
-    focusHistory = [0]
     evaluateReportSignals(current).then(result => {
       if (report === current) signals = result
     })
   }
-
-  $: currentFocusIdx = focusHistory[focusHistory.length - 1]
 
   $: labelIndex = (() => {
     const m = new Map<string, number>()
@@ -40,29 +36,7 @@
     return m
   })()
 
-  $: tree = buildTree(currentFocusIdx, report, signals, labelIndex)
-
-  $: breadcrumbs = focusHistory.map((idx, i) => ({
-    idx,
-    name: i === 0 ? 'This File' : (nodeName(idx) ?? `Manifest ${idx}`),
-  }))
-
-  function nodeName(idx: number): string | undefined {
-    const m = report.manifests?.[idx]
-    if (!m) return undefined
-    const ci = getClaimInfo(m)
-    return ci.claim_generator_info?.[0]?.name ?? ci.claim_generator
-  }
-
-  function focusManifest(manifestIdx: number) {
-    if (manifestIdx !== currentFocusIdx) {
-      focusHistory = [...focusHistory, manifestIdx]
-    }
-  }
-
-  function navigateTo(historyIdx: number) {
-    focusHistory = focusHistory.slice(0, historyIdx + 1)
-  }
+  $: tree = buildTree(0, report, signals, labelIndex)
 
   // ── Pan / zoom ────────────────────────────────────────────────────────
 
@@ -77,15 +51,13 @@
   let zoom = 1
 
   let isDragging = false
-  let hasDragged = false
   let _dragStartX = 0
   let _dragStartY = 0
   let _dragStartPanX = 0
   let _dragStartPanY = 0
 
-  // Center on navigation (focus change) or a new file load (report changes).
-  // Intentionally NOT on `signals` arrival so mid-session pan state survives.
-  $: if (currentFocusIdx !== undefined && report && containerWidth > 0) resetView()
+  // Center when a new file loads. Intentionally NOT on `signals` arrival so pan state survives.
+  $: if (report && containerWidth > 0) resetView()
 
   function resetView() {
     panX = Math.max(24, (containerWidth - 208) / 2)
@@ -96,7 +68,6 @@
   function onMouseDown(e: MouseEvent) {
     if (e.button !== 0) return
     isDragging = true
-    hasDragged = false
     _dragStartX = e.clientX
     _dragStartY = e.clientY
     _dragStartPanX = panX
@@ -107,7 +78,6 @@
     if (!isDragging) return
     const dx = e.clientX - _dragStartX
     const dy = e.clientY - _dragStartY
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasDragged = true
     panX = _dragStartPanX + dx
     panY = _dragStartPanY + dy
   }
@@ -147,7 +117,6 @@
     function onTouchStart(e: TouchEvent) {
       if (e.touches.length === 1) {
         isDragging = true
-        hasDragged = false
         _dragStartX = e.touches[0].clientX
         _dragStartY = e.touches[0].clientY
         _dragStartPanX = panX
@@ -167,7 +136,6 @@
       if (e.touches.length === 1 && isDragging) {
         const dx = e.touches[0].clientX - _dragStartX
         const dy = e.touches[0].clientY - _dragStartY
-        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasDragged = true
         panX = _dragStartPanX + dx
         panY = _dragStartPanY + dy
       } else if (e.touches.length === 2 && _lastTouchDist > 0) {
@@ -199,12 +167,6 @@
         node.removeEventListener('touchend', onTouchEnd)
       },
     }
-  }
-
-  // Prevent manifest focus from firing when the user was actually dragging.
-  function handleNodeFocus(manifestIdx: number) {
-    if (hasDragged) { hasDragged = false; return }
-    focusManifest(manifestIdx)
   }
 
   // ── Tree building ─────────────────────────────────────────────────────
@@ -318,23 +280,6 @@
 </script>
 
 {#if tree}
-  <!-- Breadcrumbs -->
-  {#if breadcrumbs.length > 1}
-    <nav class="flex items-center gap-1 mb-4 flex-wrap text-sm" aria-label="Provenance path">
-      {#each breadcrumbs as crumb, i}
-        {#if i < breadcrumbs.length - 1}
-          <button
-            class="text-orange-600 dark:text-orange-400 hover:underline font-medium"
-            on:click={() => navigateTo(i)}
-          >{crumb.name}</button>
-          <span class="text-gray-300 dark:text-gray-600 select-none">/</span>
-        {:else}
-          <span class="text-gray-700 dark:text-gray-300 font-medium">{crumb.name}</span>
-        {/if}
-      {/each}
-    </nav>
-  {/if}
-
   <!-- Pan/zoom canvas -->
   <div
     bind:this={canvasEl}
@@ -372,16 +317,14 @@
       style="position: absolute; top: 0; left: 0;
              transform: translate({panX}px, {panY}px) scale({zoom});
              transform-origin: 0 0;
-             will-change: transform;
-             pointer-events: {isDragging ? 'none' : 'auto'};"
+             will-change: transform;"
     >
       <TreeNode
         node={tree}
-        onZoom={handleNodeFocus}
         isRoot={true}
-        fileSrc={currentFocusIdx === 0 ? fileSrc : undefined}
-        fileMimeType={currentFocusIdx === 0 ? file?.type : undefined}
-        fileName={currentFocusIdx === 0 ? file?.name : undefined}
+        fileSrc={fileSrc}
+        fileMimeType={file?.type}
+        fileName={file?.name}
       />
     </div>
 

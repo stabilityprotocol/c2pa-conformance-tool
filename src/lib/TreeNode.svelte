@@ -2,7 +2,7 @@
   import type { OverviewNode } from './types'
 
   export let node: OverviewNode
-  export let onZoom: (idx: number) => void
+  export let onZoom: ((idx: number) => void) | undefined = undefined
   export let isRoot = false
   export let fileSrc: string | undefined = undefined
   export let fileMimeType: string | undefined = undefined
@@ -16,12 +16,12 @@
   <!-- Card -->
   <button
     class="relative rounded-2xl overflow-hidden border-2 transition-all w-52 focus:outline-none
-      {isRoot
+      {isRoot || !onZoom
         ? 'border-blue-500 shadow-lg cursor-default'
         : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-md cursor-pointer'}"
     style="aspect-ratio: 4/3"
-    on:click={() => !isRoot && onZoom(node.manifestIdx)}
-    disabled={isRoot}
+    on:click={() => onZoom && !isRoot && onZoom(node.manifestIdx)}
+    disabled={isRoot || !onZoom}
   >
     <!-- Media fill -->
     {#if previewSrc}
