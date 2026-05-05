@@ -4,7 +4,9 @@
   import hljs from 'highlight.js'
   import ManifestSummary from './ManifestSummary.svelte'
   import RubricsPanel from './RubricsPanel.svelte'
-  import type { ConformanceReport, ValidationStatusItem, AssertionSummaryItem, CrJsonManifestEntry } from './types'
+  import IngredientTree from './IngredientTree.svelte'
+  import OverviewPanel from './OverviewPanel.svelte'
+  import type { ConformanceReport, ValidationStatusItem, AssertionSummaryItem, CrJsonManifestEntry, IngredientTreeNode } from './types'
   import type { ManifestSignalsResult } from './rubrics/types'
   import {
     getAssertionsList,
@@ -35,11 +37,19 @@
     newfile: void
   }>()
 
-  type ReportTab = 'formatted' | 'crjson' | 'rubrics'
-  let activeTab: ReportTab = 'formatted'
+  type ReportTab = 'summary' | 'report' | 'crjson' | 'rubrics'
+  let activeTab: ReportTab = 'summary'
   // If the Rubrics gate closes (e.g. certs removed, or a re-evaluation surfaces
-  // failures), snap back to the Formatted tab.
-  $: if (activeTab === 'rubrics' && !rubricsAvailable) activeTab = 'formatted'
+  // failures), snap back to the Summary tab.
+  $: if (activeTab === 'rubrics' && !rubricsAvailable) activeTab = 'summary'
+
+  const tabHeadings: Record<ReportTab, { title: string; subtitle: string }> = {
+    summary:  { title: 'Overview',           subtitle: 'Content Credentials summary' },
+    report:   { title: 'Conformance Report', subtitle: 'Manifest validation details' },
+    crjson:   { title: 'crJSON Output',      subtitle: 'crJSON-formatted validation results' },
+    rubrics:  { title: 'Asset Rubrics',      subtitle: 'Check crJSON against rubrics' },
+  }
+  $: heading = tabHeadings[activeTab]
   let rawJsonCodeEl: HTMLElement | null = null
   let copied = false
   let copyTimeout: ReturnType<typeof setTimeout> | null = null
@@ -53,22 +63,12 @@
   ])
   let fileInput: HTMLInputElement
   let validationStatus: ValidationStatusItem[] = []
-  let expandedIngredients: Set<number> = new Set()
   let expandedAssertions: Set<number> = new Set()
   let showBackToTop = false
 
   // Track scroll position for back to top button
   function handleScroll() {
     showBackToTop = window.scrollY > 400
-  }
-
-  function toggleIngredient(index: number) {
-    if (expandedIngredients.has(index)) {
-      expandedIngredients.delete(index)
-    } else {
-      expandedIngredients.add(index)
-    }
-    expandedIngredients = expandedIngredients // Trigger reactivity
   }
 
   function toggleAssertion(index: number) {
@@ -89,39 +89,105 @@
     expandedAssertions = new Set()
   }
 
-  function expandAllIngredients() {
-    const list = activeManifest ? getIngredientsFromManifest(activeManifest) : []
-    expandedIngredients = new Set(list.map((_, i) => i))
-  }
-
-  function collapseAllIngredients() {
-    expandedIngredients = new Set()
-  }
-
   function scrollToTop() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // Get ingredient manifest from crJSON manifests array (returns crJSON entry for UI getters)
-  function getIngredientManifest(ingredient: { active_manifest?: string; instance_id?: string; [key: string]: unknown }): CrJsonManifestEntry | null {
-    const manifests = report.manifests
-    if (!manifests || !Array.isArray(manifests)) return null
+  // ── Ingredient tree ──────────────────────────────────────────────────
 
-    const label = ingredient.active_manifest ?? ingredient.instance_id
-    if (label) {
-      const entry = manifests.find((m: { label: string }) => m.label === label)
-      if (entry) return entry
+  function parseIngredientUrn(url: string): string {
+    const idx = url.indexOf('urn:c2pa:')
+    if (idx < 0) return url
+    const tail = url.slice(idx)
+    const slash = tail.indexOf('/')
+    return slash >= 0 ? tail.slice(0, slash) : tail
+  }
+
+  function extractManifestFormat(m: CrJsonManifestEntry): string | undefined {
+    const claim = ((m['claim.v2'] ?? m.claim) ?? {}) as Record<string, unknown>
+    if (typeof claim['dc:format'] === 'string') return claim['dc:format'] as string
+    const assertions = (m.assertions ?? {}) as Record<string, unknown>
+    for (const [key, value] of Object.entries(assertions)) {
+      if (!key.startsWith('c2pa.thumbnail') || !value || typeof value !== 'object') continue
+      const fmt = (value as Record<string, unknown>).format
+      if (typeof fmt === 'string') return fmt
     }
+    return undefined
+  }
 
-    if (ingredient.instance_id) {
-      const entry = manifests.find((m: CrJsonManifestEntry) => {
-        const claim = (m.claim ?? m['claim.v2']) as Record<string, unknown> | undefined
-        return claim && (claim.instanceID === ingredient.instance_id || claim.instance_id === ingredient.instance_id) || m.label === ingredient.instance_id
-      })
-      if (entry) return entry
+  function extractThumbnailSrc(m: CrJsonManifestEntry): string | undefined {
+    const assertions = (m.assertions ?? {}) as Record<string, unknown>
+    for (const [key, value] of Object.entries(assertions)) {
+      if (!key.startsWith('c2pa.thumbnail') || !value || typeof value !== 'object') continue
+      const v = value as Record<string, unknown>
+      if (typeof v.data !== 'string' || !v.data) continue
+      const fmt = typeof v.format === 'string' ? v.format : 'image/jpeg'
+      const raw = v.data as string
+      const b64 = raw.startsWith("b64'") && raw.endsWith("'") ? raw.slice(4, -1) : raw
+      return `data:${fmt};base64,${b64}`
     }
+    return undefined
+  }
 
-    return null
+  function buildIngredientChildren(
+    manifest: CrJsonManifestEntry,
+    index: Map<string, CrJsonManifestEntry>,
+  ): IngredientTreeNode[] {
+    const assertions = (manifest.assertions ?? {}) as Record<string, unknown>
+    const nodes: IngredientTreeNode[] = []
+    for (const [key, rawValue] of Object.entries(assertions)) {
+      if (!key.startsWith('c2pa.ingredient') || !rawValue || typeof rawValue !== 'object') continue
+      const v = rawValue as Record<string, unknown>
+      const amObj = v.activeManifest as Record<string, unknown> | undefined
+      const amUrl = typeof amObj?.url === 'string' ? amObj.url : undefined
+      const urn = amUrl ? parseIngredientUrn(amUrl) : undefined
+      const linked = urn ? index.get(urn) : undefined
+      if (linked) {
+        const claimInfo = getClaimInfo(linked)
+        nodes.push({
+          title: ((v.title ?? v['dc:title']) as string | undefined)
+            ?? extractManifestFormat(linked)?.split('/')?.[1]
+            ?? 'Unknown',
+          format: extractManifestFormat(linked) ?? (v.format as string | undefined),
+          relationship: v.relationship as string | undefined,
+          thumbnailSrc: extractThumbnailSrc(linked),
+          claimGenerator: claimInfo.claim_generator_info?.[0]?.name ?? claimInfo.claim_generator,
+          isRoot: false,
+          children: buildIngredientChildren(linked, index),
+        })
+      } else {
+        nodes.push({
+          title: ((v.title ?? v['dc:title']) as string | undefined) ?? (v.format as string | undefined) ?? 'Unknown',
+          format: (v.format ?? v['dc:format']) as string | undefined,
+          relationship: v.relationship as string | undefined,
+          thumbnailSrc: undefined,
+          claimGenerator: undefined,
+          isRoot: false,
+          children: [],
+        })
+      }
+    }
+    return nodes
+  }
+
+  function buildIngredientTree(r: ConformanceReport): IngredientTreeNode | null {
+    const manifests = r.manifests ?? []
+    if (!manifests.length) return null
+    const root = manifests[0]
+    const index = new Map<string, CrJsonManifestEntry>()
+    for (const m of manifests) {
+      if (typeof m.label === 'string') index.set(m.label, m)
+    }
+    const claimInfo = getClaimInfo(root)
+    return {
+      title: 'This File',
+      format: extractManifestFormat(root),
+      relationship: undefined,
+      thumbnailSrc: extractThumbnailSrc(root),
+      claimGenerator: claimInfo.claim_generator_info?.[0]?.name ?? claimInfo.claim_generator,
+      isRoot: true,
+      children: buildIngredientChildren(root, index),
+    }
   }
 
   // Create object URL for media preview
@@ -171,6 +237,7 @@
   // Read from crJSON locations via getters
   $: assertionsList = activeManifest ? getAssertionsList(activeManifest).filter(a => !a.label.includes('hash.data')) : []
   $: ingredientsList = activeManifest ? getIngredientsFromManifest(activeManifest) : []
+  $: ingredientTree = buildIngredientTree(report)
   $: signatureInfo = activeManifest ? getSignatureInfo(activeManifest) : undefined
   $: claimInfo = activeManifest ? getClaimInfo(activeManifest) : undefined
 
@@ -600,16 +667,22 @@
 
   <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
     <div>
-      <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Conformance Report</h2>
-      <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Manifest validation details</p>
+      <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{heading.title}</h2>
+      <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{heading.subtitle}</p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
       <div class="flex items-center gap-1 border border-gray-200 dark:border-gray-600 rounded-lg p-1">
         <button
-          class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {activeTab === 'formatted' ? 'bg-gray-100 dark:bg-gray-700 font-medium' : ''}"
-          on:click={() => activeTab = 'formatted'}
+          class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {activeTab === 'summary' ? 'bg-gray-100 dark:bg-gray-700 font-medium' : ''}"
+          on:click={() => activeTab = 'summary'}
         >
-          Formatted
+          Summary
+        </button>
+        <button
+          class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {activeTab === 'report' ? 'bg-gray-100 dark:bg-gray-700 font-medium' : ''}"
+          on:click={() => activeTab = 'report'}
+        >
+          Report
         </button>
         <button
           class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {activeTab === 'crjson' ? 'bg-gray-100 dark:bg-gray-700 font-medium' : ''}"
@@ -679,7 +752,7 @@
   {/if}
 
   <!-- Section Navigation — only relevant on the Formatted tab (anchors live there) -->
-  {#if activeManifest && activeTab === 'formatted'}
+  {#if activeManifest && activeTab === 'report'}
     <div class="mb-6 flex items-center gap-1 flex-wrap border-b border-gray-200 dark:border-gray-700 pb-4">
       <span class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide mr-2">Jump to:</span>
       <a href="#media-preview" class="text-sm px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-200 transition-colors">Media</a>
@@ -712,7 +785,11 @@
     </button>
   {/if}
 
-  {#if activeTab === 'crjson'}
+  {#if activeTab === 'summary'}
+    <div class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-sm">
+      <OverviewPanel {report} {file} />
+    </div>
+  {:else if activeTab === 'crjson'}
     <div class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-sm">
       <div class="flex items-center gap-3 mb-6 pb-4 border-b-2 border-gray-200 dark:border-gray-700">
         <div class="w-10 h-10 bg-gray-800 dark:bg-gray-700 rounded-lg flex items-center justify-center text-white shadow-md">
@@ -984,7 +1061,7 @@
             <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4">
               <div class="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-2">Claim Generator</div>
               <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                {#if claimInfo?.claim_generator_info?.length > 0}
+                {#if claimInfo?.claim_generator_info?.[0]?.name}
                   {claimInfo.claim_generator_info[0].name}
                   {#if claimInfo.claim_generator_info[0].version}
                     <span class="text-blue-600 dark:text-blue-300">v{claimInfo.claim_generator_info[0].version}</span>
@@ -1038,7 +1115,7 @@
                       {index + 1}
                     </div>
                     <div class="flex-1">
-                      <p class="font-bold text-gray-900 dark:text-gray-100 text-lg">{assertion.label || assertion.url || 'Unknown'}</p>
+                      <p class="font-bold text-gray-900 dark:text-gray-100 text-lg">{assertion.label || 'Unknown'}</p>
                       {#if assertion.data}
                         <button
                           on:click={() => toggleAssertion(index)}
@@ -1131,7 +1208,7 @@
           </section>
         {/if}
 
-        {#if ingredientsList.length > 0}
+        {#if ingredientTree && ingredientTree.children.length > 0}
           <section class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-sm" id="ingredients">
             <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
               <div class="w-10 h-10 bg-gray-800 dark:bg-gray-700 rounded-lg flex items-center justify-center text-white shadow-md">
@@ -1140,54 +1217,13 @@
                 </svg>
               </div>
               <div class="flex-1">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Ingredients</h3>
+                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Provenance</h3>
               </div>
               <div class="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full text-sm font-bold">
                 {ingredientsList.length}
               </div>
             </div>
-            <div class="space-y-4">
-              {#each ingredientsList as ingredient, index}
-                <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-700 hover:border-orange-300 dark:hover:border-gray-600 transition-colors">
-                  <div class="flex items-start gap-3 mb-3">
-                    <div class="flex-shrink-0 w-8 h-8 bg-orange-100 dark:bg-orange-900/30 rounded-lg flex items-center justify-center text-orange-700 dark:text-orange-300 font-bold text-sm">
-                      {index + 1}
-                    </div>
-                    <div class="flex-1">
-                      <p class="font-bold text-gray-900 dark:text-gray-100 text-lg">{ingredient.title || ingredient.instance_id || 'Unknown'}</p>
-                    </div>
-                  </div>
-                  <div class="ml-11 space-y-3">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {#if ingredient.relationship}
-                        <div class="bg-white dark:bg-gray-800 rounded-lg p-3">
-                          <div class="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-1">Relationship</div>
-                          <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{ingredient.relationship}</p>
-                        </div>
-                      {/if}
-                      {#if ingredient.format}
-                        <div class="bg-white dark:bg-gray-800 rounded-lg p-3">
-                          <div class="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-1">Format</div>
-                          <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{ingredient.format}</p>
-                        </div>
-                      {/if}
-                    </div>
-                    {#if ingredient.document_id}
-                      <div class="bg-white dark:bg-gray-800 rounded-lg p-3">
-                        <div class="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-1">Document ID</div>
-                        <p class="text-sm font-medium text-gray-900 dark:text-gray-100 break-all font-mono">{ingredient.document_id}</p>
-                      </div>
-                    {/if}
-                    {#if ingredient.instance_id && !ingredient.title}
-                      <div class="bg-white dark:bg-gray-800 rounded-lg p-3">
-                        <div class="text-xs font-semibold text-gray-500 dark:text-gray-500 uppercase tracking-wide mb-1">Instance ID</div>
-                        <p class="text-sm font-medium text-gray-900 dark:text-gray-100 break-all font-mono">{ingredient.instance_id}</p>
-                      </div>
-                    {/if}
-                  </div>
-                </div>
-              {/each}
-            </div>
+            <IngredientTree nodes={[ingredientTree]} />
           </section>
         {/if}
 

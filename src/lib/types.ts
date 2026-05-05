@@ -39,6 +39,31 @@ export interface ValidationStatusItem {
   explanation?: string
 }
 
+/** Node in the overview provenance tree */
+export interface OverviewNode {
+  manifestIdx: number
+  claimGenerator?: string
+  mimeType?: string | null
+  thumbnailSrc?: string
+  date?: string
+  ingredientCount: number
+  inceptions: string[]
+  transformations: string[]
+  relationship?: string
+  children: OverviewNode[]
+}
+
+/** Node in the ingredient provenance tree */
+export interface IngredientTreeNode {
+  title: string
+  format?: string
+  relationship?: string
+  thumbnailSrc?: string
+  claimGenerator?: string
+  isRoot: boolean
+  children: IngredientTreeNode[]
+}
+
 /** Assertion summary row for display */
 export interface AssertionSummaryItem {
   key: string
