@@ -83,14 +83,12 @@
     const canvasTop = canvasEl.getBoundingClientRect().top
     const maxHeight = Math.max(300, Math.floor(window.innerHeight - canvasTop - 16))
 
-    const fitZoom = Math.min(
-      1,
-      (containerWidth - FIT_PAD * 2) / naturalW,
-      (maxHeight - FIT_PAD * 2) / naturalH,
-    )
+    // Root card (w-52 = 208px) always starts at exactly 200px wide.
+    const fitZoom = 200 / 208
     const fitHeight = Math.min(maxHeight, Math.round(naturalH * fitZoom + FIT_PAD * 2))
-    const fitPanX = (containerWidth - naturalW * fitZoom) / 2
-    const fitPanY = (fitHeight - naturalH * fitZoom) / 2
+    // Center on the root node, not the whole tree.
+    const fitPanX = containerWidth / 2 - (naturalW / 2) * fitZoom
+    const fitPanY = FIT_PAD
 
     _fitPanX = fitPanX
     _fitPanY = fitPanY
