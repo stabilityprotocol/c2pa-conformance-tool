@@ -4,9 +4,8 @@
   import hljs from 'highlight.js'
   import ManifestSummary from './ManifestSummary.svelte'
   import RubricsPanel from './RubricsPanel.svelte'
-  import IngredientTree from './IngredientTree.svelte'
   import OverviewPanel from './OverviewPanel.svelte'
-  import type { ConformanceReport, ValidationStatusItem, AssertionSummaryItem, CrJsonManifestEntry, IngredientTreeNode, ManifestValidationGroup } from './types'
+  import type { ConformanceReport, ValidationStatusItem, AssertionSummaryItem, CrJsonManifestEntry, ManifestValidationGroup } from './types'
   import type { ManifestSignalsResult } from './rubrics/types'
   import {
     getAssertionsList,
@@ -95,103 +94,6 @@
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // ── Ingredient tree ──────────────────────────────────────────────────
-
-  function parseIngredientUrn(url: string): string {
-    const idx = url.indexOf('urn:c2pa:')
-    if (idx < 0) return url
-    const tail = url.slice(idx)
-    const slash = tail.indexOf('/')
-    return slash >= 0 ? tail.slice(0, slash) : tail
-  }
-
-  function extractManifestFormat(m: CrJsonManifestEntry): string | undefined {
-    const claim = ((m['claim.v2'] ?? m.claim) ?? {}) as Record<string, unknown>
-    if (typeof claim['dc:format'] === 'string') return claim['dc:format'] as string
-    const assertions = (m.assertions ?? {}) as Record<string, unknown>
-    for (const [key, value] of Object.entries(assertions)) {
-      if (!key.startsWith('c2pa.thumbnail') || !value || typeof value !== 'object') continue
-      const fmt = (value as Record<string, unknown>).format
-      if (typeof fmt === 'string') return fmt
-    }
-    return undefined
-  }
-
-  function extractThumbnailSrc(m: CrJsonManifestEntry): string | undefined {
-    const assertions = (m.assertions ?? {}) as Record<string, unknown>
-    for (const [key, value] of Object.entries(assertions)) {
-      if (!key.startsWith('c2pa.thumbnail') || !value || typeof value !== 'object') continue
-      const v = value as Record<string, unknown>
-      if (typeof v.data !== 'string' || !v.data) continue
-      const fmt = typeof v.format === 'string' ? v.format : 'image/jpeg'
-      const raw = v.data as string
-      const b64 = raw.startsWith("b64'") && raw.endsWith("'") ? raw.slice(4, -1) : raw
-      return `data:${fmt};base64,${b64}`
-    }
-    return undefined
-  }
-
-  function buildIngredientChildren(
-    manifest: CrJsonManifestEntry,
-    index: Map<string, CrJsonManifestEntry>,
-  ): IngredientTreeNode[] {
-    const assertions = (manifest.assertions ?? {}) as Record<string, unknown>
-    const nodes: IngredientTreeNode[] = []
-    for (const [key, rawValue] of Object.entries(assertions)) {
-      if (!key.startsWith('c2pa.ingredient') || !rawValue || typeof rawValue !== 'object') continue
-      const v = rawValue as Record<string, unknown>
-      const amObj = v.activeManifest as Record<string, unknown> | undefined
-      const amUrl = typeof amObj?.url === 'string' ? amObj.url : undefined
-      const urn = amUrl ? parseIngredientUrn(amUrl) : undefined
-      const linked = urn ? index.get(urn) : undefined
-      if (linked) {
-        const claimInfo = getClaimInfo(linked)
-        nodes.push({
-          title: ((v.title ?? v['dc:title']) as string | undefined)
-            ?? extractManifestFormat(linked)?.split('/')?.[1]
-            ?? 'Unknown',
-          format: extractManifestFormat(linked) ?? (v.format as string | undefined),
-          relationship: v.relationship as string | undefined,
-          thumbnailSrc: extractThumbnailSrc(linked),
-          claimGenerator: claimInfo.claim_generator_info?.[0]?.name ?? claimInfo.claim_generator,
-          isRoot: false,
-          children: buildIngredientChildren(linked, index),
-        })
-      } else {
-        nodes.push({
-          title: ((v.title ?? v['dc:title']) as string | undefined) ?? (v.format as string | undefined) ?? 'Unknown',
-          format: (v.format ?? v['dc:format']) as string | undefined,
-          relationship: v.relationship as string | undefined,
-          thumbnailSrc: undefined,
-          claimGenerator: undefined,
-          isRoot: false,
-          children: [],
-        })
-      }
-    }
-    return nodes
-  }
-
-  function buildIngredientTree(r: ConformanceReport): IngredientTreeNode | null {
-    const manifests = r.manifests ?? []
-    if (!manifests.length) return null
-    const root = manifests[0]
-    const index = new Map<string, CrJsonManifestEntry>()
-    for (const m of manifests) {
-      if (typeof m.label === 'string') index.set(m.label, m)
-    }
-    const claimInfo = getClaimInfo(root)
-    return {
-      title: 'This File',
-      format: extractManifestFormat(root),
-      relationship: undefined,
-      thumbnailSrc: extractThumbnailSrc(root),
-      claimGenerator: claimInfo.claim_generator_info?.[0]?.name ?? claimInfo.claim_generator,
-      isRoot: true,
-      children: buildIngredientChildren(root, index),
-    }
-  }
-
   // Create object URL for media preview
   $: if (file) {
     if (mediaUrl) {
@@ -239,7 +141,6 @@
   // Read from crJSON locations via getters
   $: assertionsList = activeManifest ? getAssertionsList(activeManifest).filter(a => !a.label.includes('hash.data')) : []
   $: ingredientsList = activeManifest ? getIngredientsFromManifest(activeManifest) : []
-  $: ingredientTree = buildIngredientTree(report)
   $: signatureInfo = activeManifest ? getSignatureInfo(activeManifest) : undefined
   $: claimInfo = activeManifest ? getClaimInfo(activeManifest) : undefined
 
@@ -815,10 +716,6 @@
         <span class="text-gray-300 dark:text-gray-600 select-none">·</span>
         <a href="#assertions" class="text-sm px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-200 transition-colors">Assertions ({assertionsList.length})</a>
       {/if}
-      {#if ingredientsList.length > 0}
-        <span class="text-gray-300 dark:text-gray-600 select-none">·</span>
-        <a href="#ingredients" class="text-sm px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-200 transition-colors">Ingredients ({ingredientsList.length})</a>
-      {/if}
     </div>
   {/if}
 
@@ -1279,25 +1176,6 @@
                 </div>
               {/each}
             </div>
-          </section>
-        {/if}
-
-        {#if ingredientTree && ingredientTree.children.length > 0}
-          <section class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-sm" id="ingredients">
-            <div class="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200 dark:border-gray-700">
-              <div class="w-10 h-10 bg-gray-800 dark:bg-gray-700 rounded-lg flex items-center justify-center text-white shadow-md">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
-              </div>
-              <div class="flex-1">
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Provenance</h3>
-              </div>
-              <div class="px-3 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded-full text-sm font-bold">
-                {ingredientsList.length}
-              </div>
-            </div>
-            <IngredientTree nodes={[ingredientTree]} />
           </section>
         {/if}
 
