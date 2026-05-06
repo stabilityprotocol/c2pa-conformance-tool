@@ -530,7 +530,7 @@
   {:else}
     {#if !report && !processing}
       <!-- Hero Section -->
-      <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-12 mt-10">
+      <div class="w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center mb-12 mt-10">
         <div class="mb-10">
           <h2 class="text-[34px] sm:text-[48px] font-bold text-[#444] dark:text-white mb-4 tracking-wide leading-tight">
              Content Credentials<br />
