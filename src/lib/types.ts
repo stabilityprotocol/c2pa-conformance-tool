@@ -36,7 +36,19 @@ export interface ValidationStatusItem {
   code: string
   success: boolean
   isInterim?: boolean
+  isInformational?: boolean
   explanation?: string
+}
+
+/** Grouped validation status by manifest */
+export interface ManifestValidationGroup {
+  label: string
+  isActive: boolean
+  index: number
+  sigInfo?: CrJsonSignatureInfo
+  success: ValidationStatusItem[]
+  failure: ValidationStatusItem[]
+  informational: ValidationStatusItem[]
 }
 
 /** Assertion summary row for display */

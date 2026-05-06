@@ -3,15 +3,17 @@
   import type { ValidationStatus } from '@contentauth/c2pa-web'
   import hljs from 'highlight.js'
   import ManifestSummary from './ManifestSummary.svelte'
-  import type { ConformanceReport, ValidationStatusItem, AssertionSummaryItem, CrJsonManifestEntry } from './types'
+  import type { ConformanceReport, ValidationStatusItem, AssertionSummaryItem, CrJsonManifestEntry, ManifestValidationGroup } from './types'
   import {
     getAssertionsList,
     getIngredientsFromManifest,
     getSignatureInfo,
     getClaimInfo,
-    getActiveManifestValidationStatus
+    getActiveManifestValidationStatus,
+    getAllValidationFailures,
+    getManifestValidationStatus
   } from './crjson'
-  import { VALIDATION_STATUS } from './constants'
+  import { VALIDATION_STATUS, VALIDATION_FAILURE_DESCRIPTIONS } from './constants'
 
   $: rawJsonHighlighted = (() => {
     try {
@@ -45,7 +47,6 @@
     'image/avif', 'image/svg+xml', 'image/bmp', 'image/ico', 'image/x-icon',
   ])
   let fileInput: HTMLInputElement
-  let validationStatus: ValidationStatusItem[] = []
   let expandedIngredients: Set<number> = new Set()
   let expandedAssertions: Set<number> = new Set()
   let showBackToTop = false
@@ -165,10 +166,17 @@
   // Get validation results from crJSON (document-level or per-manifest from c2pa-rs)
   $: validationResults = getActiveManifestValidationStatus(report)
 
-  // Check if trusted from crJSON validationResults
-  $: isTrusted = validationResults?.success?.some((status: ValidationStatus) =>
+  // Get all validation failures from the report (including active and ingredients)
+  $: failures = report ? getAllValidationFailures(report) : []
+
+  // Check if trusted from crJSON validationResults (must have trusted code AND no failures)
+  $: isTrusted = (validationResults?.success?.some((status: ValidationStatus) =>
     status.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED
-  ) ?? false
+  ) ?? false) && failures.length === 0
+
+  function getFailureDescription(code: string, explanation?: string): string {
+    return VALIDATION_FAILURE_DESCRIPTIONS[code] ?? explanation ?? `Validation failed (Code: ${code})`
+  }
 
   // Check if signature is using Interim Trust List
   $: usedITL = report.usedITL === true
@@ -177,35 +185,56 @@
   // This is determined by validating twice in processFile - once with official TL, once with test certs
   $: actuallyUsedTestCert = report.usedTestCerts === true
 
-  // Build validation status array - show key validation results from success and failure
-  $: {
-    const successStatuses: ValidationStatusItem[] = validationResults?.success?.filter((status: ValidationStatus) =>
-      status.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED ||
-      status.code === VALIDATION_STATUS.TIMESTAMP_TRUSTED ||
-      status.code === VALIDATION_STATUS.CLAIM_SIGNATURE_VALIDATED
-    ).map((status: ValidationStatus) => {
-      const isInterim = status.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED && usedITL
-      return {
-        code: status.code,
+  // Build validation status array - show all failures first (active & ingredients), then key successes
+  // Build validation status grouped by manifest
+  $: validationGroups = (() => {
+    if (!report || !report.manifests) return []
+
+    return report.manifests.map((m, i) => {
+      const isActive = i === 0
+      const sigInfo = getSignatureInfo(m)
+      const status = getManifestValidationStatus(report, m, isActive)
+
+      const success: ValidationStatusItem[] = status?.success?.filter((s) =>
+        s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED ||
+        s.code === VALIDATION_STATUS.TIMESTAMP_TRUSTED ||
+        s.code === VALIDATION_STATUS.CLAIM_SIGNATURE_VALIDATED ||
+        s.code === 'timeStamp.validated'
+      ).map((s) => {
+        const isInterim = s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED && usedITL
+        return {
+          code: s.code,
+          success: true,
+          isInterim,
+          explanation: s.explanation ?? 'Validation passed'
+        }
+      }) ?? []
+
+      const failure: ValidationStatusItem[] = status?.failure?.map((f) => ({
+        code: f.code,
+        success: false,
+        isInterim: false,
+        explanation: getFailureDescription(f.code, f.explanation)
+      })) ?? []
+
+      const informational: ValidationStatusItem[] = status?.informational?.map((inf) => ({
+        code: inf.code,
         success: true,
-        isInterim,
-        explanation: status.explanation ?? 'Validation passed'
+        isInformational: true,
+        explanation: inf.explanation ?? 'Informational'
+      })) ?? []
+
+      return {
+        label: m.label,
+        isActive,
+        index: i,
+        sigInfo,
+        success,
+        failure,
+        informational
       }
-    }) ?? []
-
-    const failureStatuses: ValidationStatusItem[] = validationResults?.failure?.filter((status: ValidationStatus) =>
-      status.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_UNTRUSTED ||
-      status.code === VALIDATION_STATUS.TIMESTAMP_UNTRUSTED ||
-      status.code === VALIDATION_STATUS.CLAIM_SIGNATURE_INVALID
-    ).map((status: ValidationStatus) => ({
-      code: status.code,
-      success: false,
-      isInterim: false,
-      explanation: status.explanation ?? 'Validation failed'
-    })) ?? []
-
-    validationStatus = [...successStatuses, ...failureStatuses]
-  }
+    }).filter(group => group.success.length > 0 || group.failure.length > 0 || group.informational.length > 0)
+  })()
 
   // Certificate validity status derived from validation results
   $: certValidityStatus = (() => {
@@ -503,10 +532,14 @@
               Signature Trusted ✓
             {/if}
           {:else}
-            Signature Not Trusted
+            {#if failures.length > 0}
+              Validation Failed ✕
+            {:else}
+              Signature Not Trusted
+            {/if}
           {/if}
         </h3>
-        <p class="text-sm {isTrusted ? 'text-green-700 dark:text-gray-300' : 'text-red-700 dark:text-gray-300'}">
+        <div class="text-sm {isTrusted ? 'text-green-700 dark:text-gray-300' : 'text-red-700 dark:text-gray-300'}">
           {#if usedITL && isTrusted}
             Validated using Interim Trust List 
             <a
@@ -526,9 +559,24 @@
           {:else if isTrusted}
             Validated against official C2PA Trust List
           {:else}
-            The signing credential could not be validated against known trust lists
+            {#if failures.length > 0}
+              <span class="font-semibold">Validation failed with the following errors:</span>
+              <div class="mt-2 space-y-1 text-xs font-mono bg-red-50/50 dark:bg-gray-900/50 p-3 rounded-lg border border-red-100 dark:border-gray-700 max-w-2xl">
+                {#each failures as failure}
+                  <div class="flex items-start gap-2">
+                    <span class="text-red-500 mt-0.5">✕</span>
+                    <div class="flex-1 text-left">
+                      <span class="font-bold">{failure.code}:</span>
+                      <span class="text-gray-700 dark:text-gray-300">{getFailureDescription(failure.code, failure.explanation)}</span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              The signing credential could not be validated against known trust lists
+            {/if}
           {/if}
-        </p>
+        </div>
         {#if usedITL && isTrusted}
           <div class="mt-2 flex items-center gap-2 flex-wrap">
             <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-100 dark:bg-gray-600 text-blue-800 dark:text-gray-200 rounded-full text-xs font-semibold">
@@ -765,43 +813,66 @@
             </div>
             <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Validation Status Details</h3>
           </div>
-          {#if validationStatus && validationStatus.length > 0}
-            <div class="space-y-3">
-              {#each validationStatus as status}
-                <div class={`rounded-xl p-5 border-2 transition-all duration-200 ${
-                  status.isInterim
-                    ? 'bg-blue-50 dark:bg-gray-900 border-blue-300 dark:border-gray-700'
-                    : status.success
-                      ? 'bg-green-50 dark:bg-gray-900 border-green-300 dark:border-gray-700'
-                      : 'bg-red-50 dark:bg-gray-900 border-red-300 dark:border-gray-700'
-                }`}>
-                  <div class="flex items-start gap-3">
-                    <div class={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-sm font-bold ${
-                      status.isInterim
-                        ? 'bg-blue-600 dark:bg-gray-600'
-                        : status.success
-                          ? 'bg-green-600 dark:bg-gray-600'
-                          : 'bg-red-600 dark:bg-gray-600'
-                    }`}>
-                      {status.isInterim ? 'i' : status.success ? '✓' : '✕'}
-                    </div>
-                    <div class="flex-1">
-                      <p class="font-bold text-gray-900 dark:text-gray-100 mb-1">
-                        {status.code}
-                        {#if status.isInterim}
-                          <span class="ml-2 px-2 py-0.5 bg-blue-200 dark:bg-gray-700 text-blue-900 dark:text-gray-100 text-xs font-semibold rounded">ITL</span>
-                        {/if}
-                      </p>
-                      {#if status.explanation}
-                        <p class={`text-sm leading-relaxed ${
-                          status.isInterim
-                            ? 'text-blue-800 dark:text-gray-300'
-                            : status.success
-                              ? 'text-green-800 dark:text-gray-300'
-                              : 'text-red-800 dark:text-gray-300'
-                        }`}>{status.explanation}</p>
-                      {/if}
-                    </div>
+          {#if validationGroups && validationGroups.length > 0}
+            <div class="space-y-6">
+              {#each validationGroups as group}
+                <div class="manifest-group-card border border-gray-200 dark:border-gray-700 rounded-2xl p-6 bg-gray-50/30 dark:bg-gray-900/10 shadow-sm">
+                  <h4 class="font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2 flex-wrap pb-3 border-b border-gray-100 dark:border-gray-800">
+                    {#if group.isActive}
+                      <span class="px-2.5 py-1 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 text-xs font-semibold rounded-full">Active Asset</span>
+                    {:else}
+                      <span class="px-2.5 py-1 bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-300 text-xs font-semibold rounded-full">Ingredient {group.index}</span>
+                    {/if}
+                    <span class="text-xs font-mono text-gray-500 dark:text-gray-500 truncate max-w-xs md:max-w-md" title={group.label}>{group.label}</span>
+                    {#if group.sigInfo?.common_name}
+                      <span class="text-xs font-normal text-gray-500 dark:text-gray-400 ml-auto">
+                        signed by <span class="font-semibold text-gray-700 dark:text-gray-300">{group.sigInfo.common_name}</span>
+                      </span>
+                    {/if}
+                  </h4>
+
+                  <div class="space-y-3">
+                    <!-- Failures -->
+                    {#each group.failure as status}
+                      <div class="rounded-xl p-4 border bg-red-50/50 dark:bg-gray-900/30 border-red-100 dark:border-red-900/30 text-red-800 dark:text-red-300">
+                         <div class="flex items-start gap-3">
+                           <span class="flex-shrink-0 w-5 h-5 rounded-full bg-red-600 dark:bg-red-800 text-white flex items-center justify-center text-xs font-bold">✕</span>
+                           <div class="flex-1 text-left">
+                             <span class="font-bold text-xs font-mono block sm:inline mb-1 sm:mb-0 mr-2">{status.code}</span>
+                             <p class="text-sm leading-relaxed mt-1 text-red-700 dark:text-red-400">{status.explanation}</p>
+                           </div>
+                         </div>
+                      </div>
+                    {/each}
+
+                    <!-- Successes -->
+                    {#each group.success as status}
+                      <div class="rounded-xl p-4 border bg-green-50/50 dark:bg-gray-900/30 border-green-100 dark:border-green-900/30 text-green-800 dark:text-green-300">
+                         <div class="flex items-start gap-3">
+                           <span class="flex-shrink-0 w-5 h-5 rounded-full bg-green-600 dark:bg-green-800 text-white flex items-center justify-center text-xs font-bold">✓</span>
+                           <div class="flex-1 text-left">
+                             <span class="font-bold text-xs font-mono block sm:inline mb-1 sm:mb-0 mr-2">{status.code}</span>
+                             {#if status.isInterim}
+                               <span class="ml-2 px-2 py-0.5 bg-blue-200 dark:bg-gray-700 text-blue-900 dark:text-gray-100 text-xs font-semibold rounded">ITL</span>
+                             {/if}
+                             <p class="text-sm leading-relaxed mt-1 text-green-700 dark:text-green-400">{status.explanation}</p>
+                           </div>
+                         </div>
+                      </div>
+                    {/each}
+
+                    <!-- Informationals -->
+                    {#each group.informational as status}
+                      <div class="rounded-xl p-4 border bg-blue-50/50 dark:bg-gray-900/30 border-blue-100 dark:border-blue-900/30 text-blue-800 dark:text-blue-300">
+                         <div class="flex items-start gap-3">
+                           <span class="flex-shrink-0 w-5 h-5 rounded-full bg-blue-600 dark:bg-blue-800 text-white flex items-center justify-center text-xs font-bold">i</span>
+                           <div class="flex-1 text-left">
+                             <span class="font-bold text-xs font-mono block sm:inline mb-1 sm:mb-0 mr-2">{status.code}</span>
+                             <p class="text-sm leading-relaxed mt-1 text-blue-700 dark:text-blue-400">{status.explanation}</p>
+                           </div>
+                         </div>
+                      </div>
+                    {/each}
                   </div>
                 </div>
               {/each}
