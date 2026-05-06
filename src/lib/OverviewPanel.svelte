@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import TreeNode from './TreeNode.svelte'
   import type { OverviewNode, ConformanceReport, CrJsonManifestEntry } from './types'
   import type { SignalsRubricResult } from './rubrics/types'
@@ -15,6 +15,10 @@
     if (fileSrc) URL.revokeObjectURL(fileSrc)
     fileSrc = file ? URL.createObjectURL(file) : undefined
   }
+  onMount(() => {
+    window.addEventListener('resize', fitToTree)
+    return () => window.removeEventListener('resize', fitToTree)
+  })
   onDestroy(() => { if (fileSrc) URL.revokeObjectURL(fileSrc) })
 
   let signals: SignalsRubricResult | null = null
@@ -47,7 +51,6 @@
   let canvasEl: HTMLDivElement
   let contentEl: HTMLDivElement
   let containerWidth = 0
-  let canvasHeight = 400  // updated by fitToTree()
 
   let panX = 0
   let panY = FIT_PAD
@@ -57,7 +60,6 @@
   let _fitPanX = 0
   let _fitPanY = FIT_PAD
   let _fitZoom = 1
-  let _fitHeight = 400
 
   let isDragging = false
   let _dragStartX = 0
@@ -65,47 +67,38 @@
   let _dragStartPanX = 0
   let _dragStartPanY = 0
 
-  // Refit when report or container width changes.
-  // NOT on `signals` arrival so the user's pan state survives that async update.
+  // Scroll to top when a new report loads; refit pan/zoom when report or width changes.
+  // NOT triggered by `signals` arrival so the user's pan state survives that async update.
+  $: if (report) window.scrollTo({ top: 0, behavior: 'instant' })
   $: if (report && containerWidth > 0) tick().then(fitToTree)
 
   async function fitToTree() {
     if (!contentEl || !canvasEl || !containerWidth) return
-    await tick() // ensure latest tree is in the DOM
+    await tick()
 
-    // offsetWidth/Height give layout size before CSS transform — exactly what we need.
     const naturalW = contentEl.offsetWidth
     const naturalH = contentEl.offsetHeight
     if (naturalW === 0 || naturalH === 0) return
 
-    // Max canvas height = whatever space is left between the canvas top and the viewport
-    // bottom, so the zoom controls are always visible without scrolling.
-    const canvasTop = canvasEl.getBoundingClientRect().top
-    const maxHeight = Math.max(300, Math.floor(window.innerHeight - canvasTop - 16))
-
     // Root card (w-52 = 208px) always starts at exactly 200px wide.
     const fitZoom = 200 / 208
-    const fitHeight = Math.min(maxHeight, Math.round(naturalH * fitZoom + FIT_PAD * 2))
-    // Center on the root node, not the whole tree.
+    // Center on the root node horizontally; leave FIT_PAD from the top.
     const fitPanX = containerWidth / 2 - (naturalW / 2) * fitZoom
     const fitPanY = FIT_PAD
 
     _fitPanX = fitPanX
     _fitPanY = fitPanY
     _fitZoom = fitZoom
-    _fitHeight = fitHeight
 
     panX = fitPanX
     panY = fitPanY
     zoom = fitZoom
-    canvasHeight = fitHeight
   }
 
   function resetView() {
     panX = _fitPanX
     panY = _fitPanY
     zoom = _fitZoom
-    canvasHeight = _fitHeight
   }
 
   function onMouseDown(e: MouseEvent) {
@@ -328,8 +321,8 @@
     bind:this={canvasEl}
     bind:clientWidth={containerWidth}
     use:touchAction
-    class="relative w-full overflow-hidden rounded-2xl"
-    style="height: {canvasHeight}px; cursor: {isDragging ? 'grabbing' : 'grab'}; background-color: var(--canvas-bg, #f8f9fb);"
+    class="relative w-full flex-1 overflow-hidden rounded-2xl"
+    style="cursor: {isDragging ? 'grabbing' : 'grab'}; background-color: var(--canvas-bg, #f8f9fb);"
     role="application"
     aria-label="Provenance tree — drag to pan, scroll to zoom"
     on:mousedown={onMouseDown}

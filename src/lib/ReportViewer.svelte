@@ -592,7 +592,7 @@
   }
 </script>
 
-  <div class="text-left mt-8 animate-fade-in">
+  <div class="text-left mt-8 animate-fade-in flex-1 flex flex-col min-h-0 {activeTab !== 'summary' ? 'mb-8' : ''}">
   <!-- Prominent Validation Status Banner -->
   <div class="mb-8 bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-sm">
     <div class="flex items-center gap-4">
@@ -786,7 +786,7 @@
   {/if}
 
   {#if activeTab === 'summary'}
-    <div class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-sm">
+    <div class="bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-2xl p-8 shadow-sm flex-1 flex flex-col min-h-0 mb-6">
       <OverviewPanel {report} {file} />
     </div>
   {:else if activeTab === 'crjson'}
@@ -802,7 +802,9 @@
       <pre class="hljs bg-gray-900 dark:bg-black border-2 border-gray-700 dark:border-gray-600 rounded-xl p-6 overflow-x-auto text-sm leading-relaxed shadow-inner"><code class="language-json" bind:this={rawJsonCodeEl}></code></pre>
     </div>
   {:else if activeTab === 'rubrics' && rubricsAvailable}
-    <RubricsPanel {report} />
+    <div class="w-full">
+      <RubricsPanel {report} />
+    </div>
   {:else}
     <!-- Media Preview and Validation Status -->
     <div class="mb-8" id="media-preview">

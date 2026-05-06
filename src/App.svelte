@@ -380,7 +380,7 @@
   on:dragover={handleGlobalDragOver}
   on:dragleave={handleGlobalDragLeave}
   on:drop={handleGlobalDrop}
-  class="relative min-h-screen"
+  class="relative min-h-screen flex flex-col"
   class:pointer-events-none={globalDragOver}
 >
   {#if globalDragOver}
@@ -498,6 +498,7 @@
     </div>
   </nav>
 
+  <div class="flex-1 flex flex-col">
   <!-- ── Test Certificates page ── -->
   {#if currentPage === 'test-certificates'}
     <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
@@ -679,7 +680,7 @@
       </div>
     {/if}
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-8">
+    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex-1 flex flex-col">
       {#if processing}
         <div
           class="flex flex-col items-center gap-6 py-20"
@@ -709,40 +710,15 @@
 
   {/if}
 
+  </div><!-- end flex-1 content -->
+
   <!-- Footer (always shown) -->
-  <footer class="border-t border-gray-200 dark:border-gray-700 mt-20">
-    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      <div class="flex flex-col md:flex-row md:items-start gap-10 text-sm">
-        <div class="space-y-3 flex-1">
-          <h3 class="font-bold text-gray-900 dark:text-gray-100 text-base mb-3">About This Tool</h3>
-          <p class="text-gray-600 dark:text-gray-400 leading-relaxed">
-            This tool validates C2PA manifests using the <a href="https://github.com/contentauth/c2pa-rs" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-gray-400 hover:text-blue-700 dark:hover:text-gray-300 transition-colors">c2pa-rs</a> SDK. All processing happens in your browser — files never leave your device.
-          </p>
-        </div>
-        <div class="space-y-3 flex-1">
-          <h3 class="font-bold text-gray-900 dark:text-gray-100 text-base mb-3">Learn More</h3>
-          <ul class="space-y-2">
-            <li>
-              <a href="https://c2pa.org" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-gray-400 hover:text-blue-700 dark:hover:text-gray-300 transition-colors inline-flex items-center gap-2 group">
-                <span>C2PA Specification</span>
-                <span class="transform group-hover:translate-x-1 transition-transform">→</span>
-              </a>
-            </li>
-            <li>
-              <a href="https://c2pa.org/conformance" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-gray-400 hover:text-blue-700 dark:hover:text-gray-300 transition-colors inline-flex items-center gap-2 group">
-                <span>Conformance Program</span>
-                <span class="transform group-hover:translate-x-1 transition-transform">→</span>
-              </a>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <div class="mt-10 pt-6 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
-        <span class="text-xs text-gray-400 dark:text-gray-500">Built with ❤️ by the C2PA Conformance community</span>
-        <a href="https://c2pa.org" target="_blank" rel="noopener noreferrer" aria-label="Visit C2PA website">
-          <img src="{import.meta.env.BASE_URL}c2pa_icon.svg" alt="C2PA" class="h-7 w-auto opacity-60 hover:opacity-100 transition-opacity dark:brightness-0 dark:invert" />
-        </a>
-      </div>
+  <footer class="border-t border-gray-200 dark:border-gray-700">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+      <span class="text-xs text-gray-400 dark:text-gray-500">Built with ❤️ by the C2PA Conformance community</span>
+      <a href="https://c2pa.org" target="_blank" rel="noopener noreferrer" aria-label="Visit C2PA website">
+        <img src="{import.meta.env.BASE_URL}c2pa_icon.svg" alt="C2PA" class="h-6 w-auto opacity-60 hover:opacity-100 transition-opacity dark:brightness-0 dark:invert" />
+      </a>
     </div>
   </footer>
 </main>
