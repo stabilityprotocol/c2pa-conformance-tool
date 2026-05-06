@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/svelte'
+import { render, fireEvent } from '@testing-library/svelte'
 import ReportViewer from './ReportViewer.svelte'
 import type { ConformanceReport } from './types'
 
@@ -29,7 +29,10 @@ describe('ReportViewer Component', () => {
       ]
     }
 
-    const { container } = render(ReportViewer, { report: mockReport })
+    const { container, getByText } = render(ReportViewer, { report: mockReport })
+
+    // Navigate to the Report tab (default is Summary)
+    fireEvent.click(getByText('Report'))
 
     const detailsSection = container.querySelector('#validation-status')
     expect(detailsSection).toBeTruthy()
@@ -85,7 +88,10 @@ describe('ReportViewer Component', () => {
       ]
     }
 
-    const { container } = render(ReportViewer, { report: mockReport })
+    const { container, getByText } = render(ReportViewer, { report: mockReport })
+
+    // Navigate to the Report tab (default is Summary)
+    fireEvent.click(getByText('Report'))
 
     const detailsSection = container.querySelector('#validation-status')
     expect(detailsSection).toBeTruthy()
