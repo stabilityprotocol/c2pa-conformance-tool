@@ -377,6 +377,7 @@
     on:mouseup={onMouseUp}
     on:mouseleave={onMouseUp}
     on:wheel|preventDefault={onWheel}
+    on:dragstart|preventDefault={() => {}}
   >
     <!-- Canvas background -->
     <div class="absolute inset-0 bg-gray-50 dark:bg-gray-900/60 pointer-events-none rounded-2xl"></div>

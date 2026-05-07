@@ -56,9 +56,9 @@
     <!-- Media fill -->
     {#if previewSrc}
       {#if (fileSrc && fileMimeType?.startsWith('video/')) || (!fileSrc && node.mimeType?.startsWith('video/'))}
-        <video src={previewSrc} class="absolute inset-0 w-full h-full object-cover" muted playsinline></video>
+        <video src={previewSrc} class="absolute inset-0 w-full h-full object-cover" muted playsinline draggable="false"></video>
       {:else}
-        <img src={previewSrc} alt="" class="absolute inset-0 w-full h-full object-cover" />
+        <img src={previewSrc} alt="" class="absolute inset-0 w-full h-full object-cover" draggable="false" />
       {/if}
     {:else}
       <!-- Placeholder -->
@@ -85,7 +85,7 @@
     <!-- Top-left C2PA badge — hidden for stub nodes -->
     {#if !node.isStub}
       <div class="absolute top-2 left-2 flex items-center bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-1.5 py-1 shadow-sm">
-        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
+        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" draggable="false" />
       </div>
     {/if}
 
