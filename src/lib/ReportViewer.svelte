@@ -576,7 +576,7 @@
           {:else}
             {#if failures.length > 0}
               <span class="font-semibold">Validation failed with the following errors:</span>
-              <div class="mt-2 space-y-1 text-xs font-mono bg-red-50/50 dark:bg-gray-900/50 p-3 rounded-lg border border-red-100 dark:border-gray-700 max-w-2xl">
+              <div class="mt-2 space-y-1 text-xs font-mono bg-red-50/50 dark:bg-gray-900/50 p-3 rounded-lg border border-red-100 dark:border-gray-700 w-full">
                 {#each failures as failure}
                   <div class="flex items-start gap-2">
                     <span class="text-red-500 mt-0.5">✕</span>
