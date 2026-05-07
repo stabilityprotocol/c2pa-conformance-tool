@@ -80,8 +80,8 @@
     const naturalH = contentEl.offsetHeight
     if (naturalW === 0 || naturalH === 0) return
 
-    // Root card (w-52 = 208px) always starts at exactly 200px wide.
-    const fitZoom = 200 / 208
+    // Root card (w-[300px]) starts at 1:1 scale.
+    const fitZoom = 1
     // Center on the root node horizontally; leave FIT_PAD from the top.
     const fitPanX = containerWidth / 2 - (naturalW / 2) * fitZoom
     const fitPanY = FIT_PAD

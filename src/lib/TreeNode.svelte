@@ -34,12 +34,16 @@
   })()
 
   $: connW = colWidths.reduce((a, b) => a + b, 0)
+
+  function formatRelationship(r: string): string {
+    return r.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase()).trim()
+  }
 </script>
 
 <div class="flex flex-col items-center min-w-0">
   <!-- Card -->
   <button
-    class="relative rounded-2xl overflow-hidden border-2 transition-all w-52 focus:outline-none
+    class="relative rounded-2xl overflow-hidden border-2 transition-all w-[300px] focus:outline-none
       {isRoot || !onZoom
         ? 'border-blue-500 shadow-lg cursor-default'
         : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-md cursor-pointer'}"
@@ -76,13 +80,10 @@
       </div>
     {/if}
 
-    <!-- Top-left badge: C2PA icon + date -->
-    {#if node.date}
-      <div class="absolute top-2 left-2 flex items-center gap-1 bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-2 py-1 shadow-sm">
-        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
-        <span class="text-xs font-medium text-gray-700 dark:text-gray-300 leading-none">{node.date}</span>
-      </div>
-    {/if}
+    <!-- Top-left C2PA badge -->
+    <div class="absolute top-2 left-2 flex items-center bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-1.5 py-1 shadow-sm">
+      <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
+    </div>
 
     <!-- Hover overlay for non-root -->
     {#if !isRoot}
@@ -91,17 +92,32 @@
   </button>
 
   <!-- Label below card -->
-  <div class="mt-2 text-center max-w-[13rem] px-1">
+  <div class="mt-2 text-center w-[300px] px-2">
+    <!-- Relationship (non-root only) -->
+    {#if !isRoot && node.relationship}
+      <p class="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-0.5">
+        {formatRelationship(node.relationship)}
+      </p>
+    {/if}
+
+    <!-- Tool / filename -->
     <p class="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
       {isRoot ? (fileName ?? 'This File') : (node.claimGenerator ?? 'Unknown')}
     </p>
+
+    <!-- Date -->
+    {#if node.date}
+      <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{node.date}</p>
+    {/if}
+
+    <!-- Actions -->
     {#if node.inceptions.length > 0 || node.transformations.length > 0}
-      <div class="flex flex-wrap justify-center gap-0.5 mt-1">
-        {#each node.inceptions.slice(0, 1) as s}
-          <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{s}</span>
+      <div class="flex flex-wrap justify-center gap-0.5 mt-1.5">
+        {#each node.inceptions as s}
+          <span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{s}</span>
         {/each}
-        {#each node.transformations.slice(0, 1) as s}
-          <span class="text-xs px-1.5 py-0.5 rounded font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{s}</span>
+        {#each node.transformations as s}
+          <span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{s}</span>
         {/each}
       </div>
     {/if}
