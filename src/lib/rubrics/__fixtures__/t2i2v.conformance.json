@@ -58,15 +58,14 @@
       {
         "trait": "well_formed_success",
         "reportText": "No structural failures found"
+      },
+      {
+        "trait": "update_manifest_constraints",
+        "reportText": "Update manifest constraints are satisfied (or manifest is not an update manifest)"
       }
     ]
   },
   "false": {
-    "validation": [
-      {
-        "trait": "update_manifest_constraints",
-        "reportText": "Update manifest violates constraints (has thumbnail or does not have exactly one parentOf ingredient)"
-      }
-    ]
+    "validation": []
   }
 }

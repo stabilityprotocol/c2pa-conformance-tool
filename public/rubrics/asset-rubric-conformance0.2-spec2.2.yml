@@ -71,6 +71,13 @@ variables:
   - c2pa.ingredient
   - c2pa.ingredient.v2
   - c2pa.actions
+  $hard_binding_assertion_labels:
+  - c2pa.hash.data
+  - c2pa.hash.boxes
+  - c2pa.hash.bmff.v2
+  - c2pa.hash.bmff.v3
+  - c2pa.hash.collection.data
+  - c2pa.hash.multi-asset
   $deprecated_action_labels:
   - c2pa.copied
   - c2pa.formatted
@@ -86,7 +93,7 @@ variables:
   - c2pa.ingredient.v3
   - c2pa.hash.boxes
   - c2pa.hash.bmff.v3
-  - c2pa.collection-data
+  - c2pa.hash.collection.data
   - c2pa.soft-binding
   - c2pa.cloud-data
   - c2pa.embedded-data
@@ -109,31 +116,24 @@ variables:
   - humanEntry.anonymous
   - humanEntry.credentialed
 expressions:
-  _validationResults: |-
-    (manifests[0].validationResults || { failure: [{code: "MISSING_VALIDATION_RESULTS"}] })
-  _assertionKeys: keys(manifests[0].assertions || `{}`)
-  _assertionValues: values(manifests[0].assertions || `{}`)
-  _actionsV2: manifests[0].assertions.'c2pa.actions.v2'.actions || `[]`
-  _claimV2: manifests[0].'claim.v2'
-  _createdAssertions: manifests[0].'claim.v2'.created_assertions || `[]`
-  _ingredientAssertions: values(manifests[0].assertions || `{}`)[? relationship != null]
+  _manifest_validationResults: '($arg0.validationResults || { failure: [{code: "MISSING_VALIDATION_RESULTS"}] })'
+  _manifest_assertionKeys: keys($arg0.assertions || `{}`)
+  _manifest_assertionValues: values($arg0.assertions || `{}`)
+  _manifest_actionsV2: $arg0.assertions.'c2pa.actions.v2'.actions || `[]`
+  _manifest_claimV2: $arg0.'claim.v2'
+  _manifest_createdAssertions: $arg0.'claim.v2'.created_assertions || `[]`
+  _manifest_ingredientAssertions: values($arg0.assertions || `{}`)[? relationship != null]
+  _activeManifest: manifests[0]
+  _validationResults: _manifest_validationResults(_activeManifest())
+  _assertionKeys: _manifest_assertionKeys(_activeManifest())
+  _assertionValues: _manifest_assertionValues(_activeManifest())
+  _actionsV2: _manifest_actionsV2(_activeManifest())
+  _claimV2: _manifest_claimV2(_activeManifest())
+  _createdAssertions: _manifest_createdAssertions(_activeManifest())
+  _ingredientAssertions: _manifest_ingredientAssertions(_activeManifest())
 
 ---
 
-- id: validation:inception_action_position
-  description: |-
-    Check if an inception action is the first action in the first actions assertion in created_assertions
-  expression: |
-    endsWith(notNull(_createdAssertions()[?contains(url, "c2pa.actions")] | [0].url, ""), "c2pa.actions.v2") &&
-    (length(_actionsV2()[?action == "c2pa.created"]) == 0 ||
-      contains(`["c2pa.created", "c2pa.opened"]`, _actionsV2()[0].action))
-  reportText:
-    'true':
-      en: |-
-        Inception action is correctly positioned as the first item in the first created actions assertion
-    'false':
-      en: |-
-        Inception action is not in the first actions assertion of created_assertions (or first item is not an actions assertion)
 - id: validation:no_dst_for_opened_action
   description: Check that c2pa.opened actions do not have digitalSourceType
   expression: |
@@ -244,7 +244,7 @@ expressions:
     _assertionKeys()[?startsWith(@, "c2pa.") &&
       !startsWith(@, "c2pa.hash.data") &&
       !contains($allowed_assertions_v22, @) &&
-      !(contains(@, "__") && contains(startsWith(@, $allowed_assertions_v22), true)) &&
+      !(contains(@, "__") && contains(startsWith(@, $allowed_assertions_v22), `true`)) &&
       !contains($deprecated_assertion_labels, @)]
   reportText:
     'true':
@@ -292,11 +292,8 @@ expressions:
 - id: validation:update_manifest_constraints
   description: |-
     Check constraints for Update Manifests (no thumbnail, exactly one parentOf ingredient)
-  expression: |
-    manifests[0].assertions.'c2pa.hash.data' != null ||
-    length(_ingredientAssertions()) == 0 ||
-    (manifests[0].assertions.'c2pa.thumbnail.claim' == null &&
-      length(_ingredientAssertions()[? relationship == "parentOf"]) == 1)
+  expression: |-
+    length(_assertionKeys()[?contains($hard_binding_assertion_labels, @)]) > `0` || length(_ingredientAssertions()) == `0` || (manifests[0].assertions.'c2pa.thumbnail.claim' == null && length(_ingredientAssertions()[? relationship == "parentOf"]) == `1`)
   reportText:
     'true':
       en: |-
@@ -304,3 +301,17 @@ expressions:
     'false':
       en: |-
         Update manifest violates constraints (has thumbnail or does not have exactly one parentOf ingredient)
+- id: validation:inception_action_position
+  description: |-
+    Check if an inception action is the first action in the first actions assertion in created_assertions
+  expression: |
+    endsWith(notNull(_createdAssertions()[?contains(url, "c2pa.actions")] | [0].url, ""), "c2pa.actions.v2") &&
+    (length(_actionsV2()[?action == "c2pa.created"]) == 0 ||
+      contains(`["c2pa.created", "c2pa.opened"]`, _actionsV2()[0].action))
+  reportText:
+    'true':
+      en: |-
+        Inception action is correctly positioned as the first item in the first created actions assertion
+    'false':
+      en: |-
+        Inception action is not in the first actions assertion of created_assertions (or first item is not an actions assertion)

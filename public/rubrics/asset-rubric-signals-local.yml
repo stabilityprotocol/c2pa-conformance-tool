@@ -40,11 +40,14 @@ variables:
   - http://cv.iptc.org/newscodes/digitalsourcetype/digitalArt
   - http://cv.iptc.org/newscodes/digitalsourcetype/composite
 expressions:
-  _hasActionsV2: |-
-    assertions.'c2pa.actions.v2' != null && length('claim.v2'.created_assertions[?contains(url, "c2pa.actions.v2")]) > 0
-  _signalActions: assertions.'c2pa.actions.v2'.actions
-  _createdWithDst: |-
-    _hasActionsV2() && length(_signalActions()[? action == "c2pa.created" && digitalSourceType == $arg0]) > 0
+  _manifest_hasActionsV2: |-
+    $arg0.assertions.'c2pa.actions.v2' != null && length($arg0.'claim.v2'.created_assertions[?contains(url, "c2pa.actions.v2")]) > 0
+  _manifest_signalActions: $arg0.assertions.'c2pa.actions.v2'.actions
+  _manifest_createdWithDst: |-
+    _manifest_hasActionsV2($arg0) && length(_manifest_signalActions($arg0)[? action == "c2pa.created" && digitalSourceType == $arg1]) > 0
+  _hasActionsV2: _manifest_hasActionsV2(@)
+  _signalActions: _manifest_signalActions(@)
+  _createdWithDst: _manifest_createdWithDst(@, $arg0)
 
 ---
 
