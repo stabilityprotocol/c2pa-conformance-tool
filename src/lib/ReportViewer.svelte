@@ -40,9 +40,6 @@
 
   type ReportTab = 'summary' | 'report' | 'crjson' | 'rubrics'
   let activeTab: ReportTab = 'summary'
-  // If the Rubrics gate closes (e.g. certs removed, or a re-evaluation surfaces
-  // failures), snap back to the Summary tab.
-  $: if (activeTab === 'rubrics' && !rubricsAvailable) activeTab = 'summary'
 
   const tabHeadings: Record<ReportTab, { title: string; subtitle: string }> = {
     summary:  { title: 'Overview',           subtitle: 'Content Credentials summary' },
@@ -179,20 +176,6 @@
   // Gate for the Rubrics tab: trusted signature is enough.
   //
   // We deliberately do NOT require an empty failure array. The rubrics
-  // (integrity, conformance) are *designed* to enumerate validation failures
-  // — their `validation:*_success` rules read directly out of
-  // `validationResults.failure[]`. Hiding the tab when failures exist
-  // would hide the very report meant to explain them. Trust-adjacent
-  // non-fatal codes (e.g. `signingCredential.ocsp.inaccessible`,
-  // `signingCredential.expired`, `timeStamp.untrusted`) are common with
-  // test-cert and offline/dev workflows; gating on those locked the tab
-  // out for legitimate cases.
-  //
-  // If a rubric expression throws (e.g. on a structurally-malformed
-  // manifest), the engine catches it and renders the failure in the
-  // panel's "Errored" section — so the soft case is still safe.
-  $: rubricsAvailable = isTrusted
-
   // Check if signature is using Interim Trust List
   $: usedITL = report.usedITL === true
 
@@ -640,15 +623,13 @@
         >
           crJSON
         </button>
-        {#if rubricsAvailable}
-          <button
-            class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {activeTab === 'rubrics' ? 'bg-gray-100 dark:bg-gray-700 font-medium' : ''}"
-            on:click={() => activeTab = 'rubrics'}
-            title="Evaluate this manifest against selectable rubrics"
-          >
-            Rubrics
-          </button>
-        {/if}
+        <button
+          class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {activeTab === 'rubrics' ? 'bg-gray-100 dark:bg-gray-700 font-medium' : ''}"
+          on:click={() => activeTab = 'rubrics'}
+          title="Evaluate this manifest against selectable rubrics"
+        >
+          Rubrics
+        </button>
       </div>
       <button
         class="inline-flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -747,7 +728,7 @@
       </div>
       <pre class="hljs bg-gray-900 dark:bg-black border-2 border-gray-700 dark:border-gray-600 rounded-xl p-6 overflow-x-auto text-sm leading-relaxed shadow-inner"><code class="language-json" bind:this={rawJsonCodeEl}></code></pre>
     </div>
-  {:else if activeTab === 'rubrics' && rubricsAvailable}
+  {:else if activeTab === 'rubrics'}
     <div class="w-full">
       <RubricsPanel {report} />
     </div>
