@@ -596,7 +596,7 @@
               </div>
               <div class="flex-1">
                 <h2 class="text-2xl font-bold text-gray-700 dark:text-gray-200 mb-3">No C2PA Content Credentials Found</h2>
-                <p class="text-gray-600 dark:text-gray-300 leading-relaxed mb-4">This file doesn't appear to contain C2PA content credentials.</p>
+                <p class="text-gray-600 dark:text-gray-300 leading-relaxed mb-4">This file doesn't appear to contain C2PA Content Credentials.</p>
                 <button
                   on:click={resetToHome}
                   class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm font-semibold rounded-lg transition-colors"

@@ -591,20 +591,17 @@ async function extractCrJsonWithMetadata(file: File, testCertificates: string[] 
     )
   } catch (error) {
     console.error('❌ Error in processFile:', error)
-    if (error instanceof Error) {
-      const msg = error.message
-      if (msg.includes('UnsupportedFormatError') || msg.includes('Unsupported format')) {
-        throw new Error(`Unsupported file format (${mimeType}). Supported formats include JPEG, PNG, WebP, AVIF, MP4, MOV, MP3, WAV, and PDF.`)
-      }
-      if (msg.includes('InvalidAsset') || msg.includes('Box size extends beyond') || msg.includes('box size')) {
-        throw new Error(`Could not parse this file. It may be corrupted, use an unsupported codec, or the C2PA manifest may be malformed.`)
-      }
-      if (msg.includes('NoManifest') || msg.includes('no manifest')) {
-        throw new Error(`No C2PA manifest found in this file.`)
-      }
-      throw new Error(`Failed to process file: ${msg}`)
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('UnsupportedFormatError') || msg.includes('Unsupported format')) {
+      throw new Error(`Unsupported file format (${mimeType}). Supported formats include JPEG, PNG, WebP, AVIF, MP4, MOV, MP3, WAV, and PDF.`)
     }
-    throw error
+    if (msg.includes('InvalidAsset') || msg.includes('Box size extends beyond') || msg.includes('box size')) {
+      throw new Error(`Could not parse this file. It may be corrupted, use an unsupported codec, or the C2PA manifest may be malformed.`)
+    }
+    if (msg.includes('NoManifest') || msg.includes('no manifest') || msg.includes('No C2PA manifest') || msg.includes('no JUMBF data')) {
+      throw new Error(`No C2PA manifest found in this file.`)
+    }
+    throw new Error(`Failed to process file: ${msg}`)
   }
 }
 
@@ -670,31 +667,28 @@ async function extractSidecarWithAssetCrJsonWithMetadata(
     )
   } catch (error) {
     console.error('❌ Error in processSidecarWithAsset:', error)
-    if (error instanceof Error) {
-      const msg = error.message
-      // c2pa-rs surfaces asset-hash mismatches through these error variants.
-      // When they fire, the two files almost certainly don't belong together.
-      if (
-        msg.includes('HashMismatch') ||
-        msg.includes('hash mismatch') ||
-        msg.includes('AssertionValidation') ||
-        msg.includes('assertion.dataHash.mismatch') ||
-        msg.includes('assertion.bmffHash.mismatch')
-      ) {
-        throw new Error(
-          `The sidecar's asset-hash bindings don't match "${asset.name}". ` +
-          `The sidecar and asset are probably not a matched pair.`,
-        )
-      }
-      if (msg.includes('UnsupportedFormatError') || msg.includes('Unsupported format')) {
-        throw new Error(`Unsupported asset format (${assetMimeType}) for sidecar validation.`)
-      }
-      if (msg.includes('InvalidAsset') || msg.includes('Box size extends beyond') || msg.includes('box size')) {
-        throw new Error(`Could not parse the asset file. It may be corrupted or use an unsupported codec.`)
-      }
-      throw new Error(`Failed to validate sidecar against asset: ${msg}`)
+    const msg = error instanceof Error ? error.message : String(error)
+    // c2pa-rs surfaces asset-hash mismatches through these error variants.
+    // When they fire, the two files almost certainly don't belong together.
+    if (
+      msg.includes('HashMismatch') ||
+      msg.includes('hash mismatch') ||
+      msg.includes('AssertionValidation') ||
+      msg.includes('assertion.dataHash.mismatch') ||
+      msg.includes('assertion.bmffHash.mismatch')
+    ) {
+      throw new Error(
+        `The sidecar's asset-hash bindings don't match "${asset.name}". ` +
+        `The sidecar and asset are probably not a matched pair.`,
+      )
     }
-    throw error
+    if (msg.includes('UnsupportedFormatError') || msg.includes('Unsupported format')) {
+      throw new Error(`Unsupported asset format (${assetMimeType}) for sidecar validation.`)
+    }
+    if (msg.includes('InvalidAsset') || msg.includes('Box size extends beyond') || msg.includes('box size')) {
+      throw new Error(`Could not parse the asset file. It may be corrupted or use an unsupported codec.`)
+    }
+    throw new Error(`Failed to validate sidecar against asset: ${msg}`)
   }
 }
 
