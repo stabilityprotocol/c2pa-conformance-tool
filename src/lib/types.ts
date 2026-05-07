@@ -51,6 +51,7 @@ export interface OverviewNode {
   inceptions: string[]
   transformations: string[]
   relationship?: string
+  isStub?: boolean
   children: OverviewNode[]
 }
 

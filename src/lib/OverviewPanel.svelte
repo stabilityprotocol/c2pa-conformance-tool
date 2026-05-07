@@ -250,21 +250,54 @@
     return undefined
   }
 
+  type Edge = { childIdx: number | null; relationship?: string; stubTitle?: string; stubFormat?: string }
+
   function crJsonEdges(
     m: CrJsonManifestEntry,
     idx: Map<string, number>
-  ): { childIdx: number; relationship?: string }[] {
-    const out: { childIdx: number; relationship?: string }[] = []
+  ): Edge[] {
+    const out: Edge[] = []
     for (const [key, raw] of Object.entries((m.assertions ?? {}) as Record<string, unknown>)) {
       if (!key.startsWith('c2pa.ingredient') || !raw || typeof raw !== 'object') continue
       const v = raw as Record<string, unknown>
+      const relationship = v.relationship as string | undefined
+      const stubTitle = (v.title ?? v.dc_title) as string | undefined
+      const stubFormat = (v.format ?? v.dc_format) as string | undefined
+      // v1: c2pa_manifest is an object { url, alg, hash }
+      // v2: active_manifest is a direct string (manifest label)
       const manifestRef = (v.c2pa_manifest ?? v.activeManifest) as Record<string, unknown> | undefined
-      const url = manifestRef?.url as string | undefined
-      if (!url) continue
-      const childIdx = idx.get(parseManifestLabel(url))
-      if (childIdx != null) out.push({ childIdx, relationship: v.relationship as string | undefined })
+      const activeManifestStr = v['active_manifest'] as string | undefined
+      const url = (manifestRef?.url as string | undefined) ?? (typeof activeManifestStr === 'string' ? activeManifestStr : undefined)
+      if (!url) {
+        // No manifest reference — ingredient has no Content Credentials
+        out.push({ childIdx: null, relationship, stubTitle, stubFormat })
+      } else {
+        const childIdx = idx.get(parseManifestLabel(url))
+        if (childIdx != null) {
+          out.push({ childIdx, relationship })
+        } else {
+          // Manifest referenced but not present in this report
+          out.push({ childIdx: null, relationship, stubTitle, stubFormat })
+        }
+      }
     }
     return out
+  }
+
+  function makeStubNode(edge: Edge): OverviewNode {
+    return {
+      manifestIdx: -1,
+      claimGenerator: edge.stubTitle,
+      mimeType: edge.stubFormat ?? null,
+      thumbnailSrc: undefined,
+      date: undefined,
+      ingredientCount: 0,
+      inceptions: [],
+      transformations: [],
+      relationship: edge.relationship,
+      isStub: true,
+      children: [],
+    }
   }
 
   function buildTree(
@@ -283,16 +316,29 @@
     const sigData = s?.manifests[rootIdx]
     const claimInfo = getClaimInfo(manifest)
 
-    const edges = sigData
-      ? sigData.ingredients.map(e => ({ childIdx: e.index, relationship: e.relationship }))
-      : crJsonEdges(manifest, idx)
+    const allCrJsonEdges = crJsonEdges(manifest, idx)
+    const edges: Edge[] = sigData
+      ? [
+          // sigData has better relationship/index data for credentialed ingredients
+          ...sigData.ingredients.map(e => ({ childIdx: e.index, relationship: e.relationship })),
+          // but extractIngredients skips uncredentialed ones — add them from crJsonEdges
+          ...allCrJsonEdges.filter(e => e.childIdx === null),
+        ]
+      : allCrJsonEdges
 
     const children: OverviewNode[] = []
     for (const edge of edges) {
-      const child = buildTree(edge.childIdx, r, s, idx, new Set(visited))
-      if (child) {
-        child.relationship = edge.relationship
-        children.push(child)
+      if (edge.childIdx == null) {
+        children.push(makeStubNode(edge))
+      } else {
+        const child = buildTree(edge.childIdx, r, s, idx, new Set(visited))
+        if (child) {
+          child.relationship = edge.relationship
+          children.push(child)
+        } else if (!r.manifests?.[edge.childIdx]) {
+          // Referenced index has no manifest entry
+          children.push(makeStubNode(edge))
+        }
       }
     }
 
@@ -310,6 +356,7 @@
       inceptions: sigData?.localInceptions.map(h => h.reportText) ?? [],
       transformations: sigData?.localTransformations.map(h => h.reportText) ?? [],
       relationship: undefined,
+      isStub: false,
       children,
     }
   }

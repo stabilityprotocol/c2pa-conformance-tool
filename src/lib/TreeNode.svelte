@@ -44,12 +44,14 @@
   <!-- Card -->
   <button
     class="relative rounded-2xl overflow-hidden border-2 transition-all w-[300px] focus:outline-none
-      {isRoot || !onZoom
-        ? 'border-blue-500 shadow-lg cursor-default'
-        : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-md cursor-pointer'}"
+      {node.isStub
+        ? 'border-dashed border-gray-300 dark:border-gray-600 cursor-default'
+        : isRoot || !onZoom
+          ? 'border-blue-500 shadow-lg cursor-default'
+          : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-md cursor-pointer'}"
     style="aspect-ratio: 4/3"
-    on:click={() => onZoom && !isRoot && onZoom(node.manifestIdx)}
-    disabled={isRoot || !onZoom}
+    on:click={() => onZoom && !isRoot && !node.isStub && onZoom(node.manifestIdx)}
+    disabled={isRoot || !onZoom || node.isStub}
   >
     <!-- Media fill -->
     {#if previewSrc}
@@ -60,7 +62,7 @@
       {/if}
     {:else}
       <!-- Placeholder -->
-      <div class="absolute inset-0 bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+      <div class="absolute inset-0 {node.isStub ? 'bg-gray-50 dark:bg-gray-900' : 'bg-gray-100 dark:bg-gray-800'} flex items-center justify-center">
         {#if node.mimeType?.startsWith('video/')}
           <svg class="w-10 h-10 text-gray-300 dark:text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
             <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
@@ -80,13 +82,15 @@
       </div>
     {/if}
 
-    <!-- Top-left C2PA badge -->
-    <div class="absolute top-2 left-2 flex items-center bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-1.5 py-1 shadow-sm">
-      <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
-    </div>
+    <!-- Top-left C2PA badge — hidden for stub nodes -->
+    {#if !node.isStub}
+      <div class="absolute top-2 left-2 flex items-center bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-1.5 py-1 shadow-sm">
+        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
+      </div>
+    {/if}
 
     <!-- Hover overlay for non-root -->
-    {#if !isRoot}
+    {#if !isRoot && !node.isStub}
       <div class="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors pointer-events-none rounded-2xl"></div>
     {/if}
   </button>
@@ -101,25 +105,34 @@
     {/if}
 
     <!-- Tool / filename -->
-    <p class="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">
-      {isRoot ? (fileName ?? 'This File') : (node.claimGenerator ?? 'Unknown')}
+    <p class="text-xs font-semibold {node.isStub ? 'text-gray-400 dark:text-gray-500' : 'text-gray-800 dark:text-gray-200'} truncate">
+      {#if node.isStub}
+        {node.claimGenerator ?? 'Unknown file'}
+      {:else}
+        {isRoot ? (fileName ?? 'This File') : (node.claimGenerator ?? 'Unknown')}
+      {/if}
     </p>
 
-    <!-- Date -->
-    {#if node.date}
-      <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{node.date}</p>
-    {/if}
+    <!-- No credentials label for stubs -->
+    {#if node.isStub}
+      <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 italic">No Content Credentials</p>
+    {:else}
+      <!-- Date -->
+      {#if node.date}
+        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{node.date}</p>
+      {/if}
 
-    <!-- Actions -->
-    {#if node.inceptions.length > 0 || node.transformations.length > 0}
-      <div class="flex flex-wrap justify-center gap-0.5 mt-1.5">
-        {#each node.inceptions as s}
-          <span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{s}</span>
-        {/each}
-        {#each node.transformations as s}
-          <span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{s}</span>
-        {/each}
-      </div>
+      <!-- Actions -->
+      {#if node.inceptions.length > 0 || node.transformations.length > 0}
+        <div class="flex flex-wrap justify-center gap-0.5 mt-1.5">
+          {#each node.inceptions as s}
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{s}</span>
+          {/each}
+          {#each node.transformations as s}
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">{s}</span>
+          {/each}
+        </div>
+      {/if}
     {/if}
   </div>
 
@@ -132,8 +145,15 @@
       class="mt-2 flex-shrink-0 overflow-visible text-gray-300 dark:text-gray-600"
       aria-hidden="true"
     >
-      {#each connPaths as d}
-        <path {d} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      {#each connPaths as d, i}
+        <path
+          {d}
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-dasharray={node.children[i]?.isStub ? '5 4' : undefined}
+        />
       {/each}
     </svg>
 
