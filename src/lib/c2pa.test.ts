@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { ValidationStatus } from '@contentauth/c2pa-web'
 import { processFile, getVersion, isSidecarFile, resolveMimeType, SIDECAR_MIME } from './c2pa'
 import type { ConformanceReport } from './types'
 
@@ -221,10 +220,10 @@ describe('c2pa utilities', () => {
       expect(result).toBeDefined()
       // Check if ITL validation succeeded
       const hasUntrusted = result.validationResults?.activeManifest?.failure?.some(
-        (f: ValidationStatus) => f.code === 'signingCredential.untrusted'
+        (f) => f.code === 'signingCredential.untrusted'
       )
       const hasTrusted = result.validationResults?.activeManifest?.success?.some(
-        (s: ValidationStatus) => s.code === 'signingCredential.trusted'
+        (s) => s.code === 'signingCredential.trusted'
       )
 
       if (hasTrusted && !hasUntrusted) {

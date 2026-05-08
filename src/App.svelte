@@ -9,16 +9,16 @@
   import FileUpload from './lib/FileUpload.svelte'
   import ReportViewer from './lib/ReportViewer.svelte'
   import CertificateManager from './lib/CertificateManager.svelte'
-  import { processFile, processSidecarWithAsset, isSidecarFile, isSidecarWithAssetSupported } from './lib/c2pa'
+  import { processFile, isSidecarFile } from './lib/c2pa'
   import { testTrustListFetch } from './lib/trustListTest'
   import type { ConformanceReport } from './lib/types'
 
   type Page = 'main' | 'test-certificates'
   // 'embedded' = normal asset with in-band manifest.
-  // 'sidecar+asset' = user supplied both the .c2pa and the asset; hash
-  //   bindings are actually verified.
-  // 'sidecar-only' = user supplied a .c2pa without the asset; we can still
-  //   parse/inspect the manifest, but hash bindings cannot be validated.
+  // 'sidecar+asset' = user supplied both the .c2pa and the asset; manifest is
+  //   read from the sidecar and the asset is shown for context only.
+  // 'sidecar-only' = user supplied a .c2pa without the asset; manifest is
+  //   parsed and inspected directly.
   type ValidationMode = 'embedded' | 'sidecar+asset' | 'sidecar-only'
 
   let report: ConformanceReport | null = null
@@ -32,7 +32,6 @@
   let sidecarFile: File | null = null       // companion file when we processed a sidecar+asset pair
   let pendingSidecar: File | null = null    // sidecar dropped, waiting for user to supply the asset
   let validationMode: ValidationMode = 'embedded'
-  let sidecarSupported = false              // `true` iff local WASM exposes fromSidecarAndBlob
   let darkMode = false
   let infoSectionExpanded = false
   let testModeEnabled = false
@@ -46,21 +45,6 @@
     testTrustListFetch().catch(err => {
       console.warn('Trust list fetch test failed:', err)
     })
-
-    // Detect whether sidecar+asset validation is available. When it isn't (the
-    // packaged SDK fallback) we still accept .c2pa drops, but skip the
-    // "drop the matching asset" prompt and go straight to sidecar-only
-    // inspection — asking the user for an asset we can't actually validate
-    // against would just be confusing.
-    isSidecarWithAssetSupported()
-      .then((supported) => {
-        sidecarSupported = supported
-        console.log(`Sidecar+asset validation: ${supported ? 'available (local WASM)' : 'unavailable (packaged SDK)'}`)
-      })
-      .catch((err) => {
-        console.warn('Could not probe sidecar support:', err)
-        sidecarSupported = false
-      })
 
     // Initialize dark mode from localStorage or system preference
     const savedTheme = localStorage.getItem('theme')
@@ -132,7 +116,7 @@
     if (files.length === 0) return
 
     // Case 1: Exactly one sidecar + one asset dropped together → pair them.
-    if (files.length >= 2 && sidecarSupported) {
+    if (files.length >= 2) {
       const sidecars = files.filter(isSidecarFile)
       const assets = files.filter(f => !isSidecarFile(f))
       if (sidecars.length === 1 && assets.length === 1) {
@@ -149,9 +133,11 @@
       return
     }
 
-    // Case 2: Single sidecar, no asset yet, and we CAN validate pairs →
-    //   park it and prompt the user to drop the asset.
-    if (isSidecarFile(file) && sidecarSupported && !pendingSidecar) {
+    // Case 2: Single sidecar, no asset yet → park it and prompt for the asset.
+    // We do this regardless of sidecarSupported so that even the packaged-SDK
+    // fallback path (no local WASM) shows the pairing prompt. JSON sidecars are
+    // parsed directly as crJSON reports so they never need the local WASM.
+    if (isSidecarFile(file) && !pendingSidecar) {
       pendingSidecar = file
       selectedFile = file
       report = null
@@ -240,18 +226,16 @@
     try {
       processingStatus = 'Initializing C2PA SDK...'
       await new Promise(resolve => setTimeout(resolve, 100))
-      processingStatus = 'Validating manifest against asset bytes...'
-      report = await processSidecarWithAsset(sidecar, asset, testCertificates)
+
+      processingStatus = 'Parsing manifest...'
+      report = await processFile(sidecar, testCertificates)
+
       processingStatus = 'Building report...'
       await new Promise(resolve => setTimeout(resolve, 100))
       console.log('✅ Sidecar+asset processed successfully:', report)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'An error occurred processing the files'
-      if (msg.includes('No C2PA manifest')) {
-        noManifest = true
-      } else {
-        error = msg
-      }
+      // Sidecar files should always contain a manifest — failures are errors, not "no credentials".
+      error = err instanceof Error ? err.message : 'An error occurred processing the files'
       console.error('❌ Error processing sidecar pair:', err)
     } finally {
       processing = false
@@ -280,8 +264,8 @@
     usedTestCertificates = testCertificates.length > 0
     try {
       await new Promise(resolve => setTimeout(resolve, 0))
-      if (validationMode === 'sidecar+asset' && sidecarFile) {
-        report = await processSidecarWithAsset(sidecarFile, selectedFile, testCertificates)
+      if (sidecarFile) {
+        report = await processFile(sidecarFile, testCertificates)
       } else {
         report = await processFile(selectedFile, testCertificates)
       }
@@ -641,7 +625,7 @@
                   <span class="font-mono">{pendingSidecar.name}</span>
                 </p>
                 <p class="text-sm text-blue-600 dark:text-gray-400 mb-4">
-                  Drop or select the asset file this sidecar belongs to. The sidecar's hash bindings will be verified against the asset bytes.
+                  Drop or select the asset file this sidecar belongs to. The asset will be shown alongside the manifest for context.
                 </p>
                 <div class="flex flex-wrap gap-3">
                   <FileUpload on:fileselect={(e) => handleFilesDropped([e.detail])} compact={true} />

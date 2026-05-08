@@ -51,14 +51,13 @@
           : 'border-gray-200 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:shadow-md cursor-pointer'}"
     style="aspect-ratio: 4/3"
     on:click={() => onZoom && !isRoot && !node.isStub && onZoom(node.manifestIdx)}
-    disabled={isRoot || !onZoom || node.isStub}
   >
     <!-- Media fill -->
     {#if previewSrc}
       {#if (fileSrc && fileMimeType?.startsWith('video/')) || (!fileSrc && node.mimeType?.startsWith('video/'))}
-        <video src={previewSrc} class="absolute inset-0 w-full h-full object-cover" muted playsinline draggable="false"></video>
+        <video src={previewSrc} class="absolute inset-0 w-full h-full object-cover" muted playsinline></video>
       {:else}
-        <img src={previewSrc} alt="" class="absolute inset-0 w-full h-full object-cover" draggable="false" />
+        <img src={previewSrc} alt="" draggable="false" class="absolute inset-0 w-full h-full object-cover" />
       {/if}
     {:else}
       <!-- Placeholder -->
@@ -85,7 +84,7 @@
     <!-- Top-left C2PA badge — hidden for stub nodes -->
     {#if !node.isStub}
       <div class="absolute top-2 left-2 flex items-center bg-white/90 dark:bg-gray-900/85 backdrop-blur-sm rounded-lg px-1.5 py-1 shadow-sm">
-        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" draggable="false" />
+        <img src="{import.meta.env.BASE_URL}content_credentials_icon.svg" alt="" class="w-3.5 h-3.5 flex-shrink-0 dark:brightness-0 dark:invert" />
       </div>
     {/if}
 

@@ -19,7 +19,11 @@
     window.addEventListener('resize', fitToTree)
     return () => window.removeEventListener('resize', fitToTree)
   })
-  onDestroy(() => { if (fileSrc) URL.revokeObjectURL(fileSrc) })
+  onDestroy(() => {
+    if (fileSrc) URL.revokeObjectURL(fileSrc)
+    document.removeEventListener('mousemove', onDocMouseMove)
+    document.removeEventListener('mouseup', onDocMouseUp)
+  })
 
   let signals: SignalsRubricResult | null = null
 
@@ -108,6 +112,22 @@
     _dragStartY = e.clientY
     _dragStartPanX = panX
     _dragStartPanY = panY
+    document.addEventListener('mousemove', onDocMouseMove)
+    document.addEventListener('mouseup', onDocMouseUp)
+  }
+
+  function onDocMouseMove(e: MouseEvent) {
+    if (!isDragging) return
+    const dx = e.clientX - _dragStartX
+    const dy = e.clientY - _dragStartY
+    panX = _dragStartPanX + dx
+    panY = _dragStartPanY + dy
+  }
+
+  function onDocMouseUp() {
+    isDragging = false
+    document.removeEventListener('mousemove', onDocMouseMove)
+    document.removeEventListener('mouseup', onDocMouseUp)
   }
 
   function onMouseMove(e: MouseEvent) {

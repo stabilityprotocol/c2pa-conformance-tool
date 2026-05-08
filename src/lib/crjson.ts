@@ -82,7 +82,7 @@ export interface CrJsonClaimInfo {
 /** Detect if parsed JSON is crJSON format */
 export function isCrJson(obj: unknown): obj is CrJson {
   const o = obj as Record<string, unknown>
-  return Array.isArray(o?.manifests) && o.manifests.length > 0 && o['@context'] != null
+  return Array.isArray(o?.manifests) && o.manifests.length > 0
 }
 
 /** Read assertions as list from crJSON manifest.assertions (object → array of { label, data }) */

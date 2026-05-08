@@ -1,6 +1,5 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte'
-  import type { ValidationStatus } from '@contentauth/c2pa-web'
   import hljs from 'highlight.js'
   import ManifestSummary from './ManifestSummary.svelte'
   import RubricsPanel from './RubricsPanel.svelte'
@@ -165,7 +164,7 @@
   $: failures = report ? getAllValidationFailures(report) : []
 
   // Check if trusted from crJSON validationResults (must have trusted code AND no failures)
-  $: isTrusted = (validationResults?.success?.some((status: ValidationStatus) =>
+  $: isTrusted = (validationResults?.success?.some((status) =>
     status.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED
   ) ?? false) && failures.length === 0
 
@@ -240,10 +239,10 @@
     const failure = validationResults.failure ?? []
     const success = validationResults.success ?? []
     const info = validationResults.informational ?? []
-    if (failure.some((s: ValidationStatus) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_EXPIRED))
+    if (failure.some((s) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_EXPIRED))
       return 'expired' as const
     const validCodes = [VALIDATION_STATUS.CLAIM_SIGNATURE_INSIDE_VALIDITY, VALIDATION_STATUS.TIME_OF_SIGNING_INSIDE_VALIDITY]
-    if ([...success, ...info].some((s: ValidationStatus) => validCodes.includes(s.code as typeof validCodes[number])))
+    if ([...success, ...info].some((s) => validCodes.includes(s.code as typeof validCodes[number])))
       return 'valid' as const
     return 'unknown' as const
   })()
@@ -254,13 +253,13 @@
     const failure = validationResults.failure ?? []
     const success = validationResults.success ?? []
     const info = validationResults.informational ?? []
-    if (failure.some((s: ValidationStatus) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_REVOKED))
+    if (failure.some((s) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_REVOKED))
       return 'revoked' as const
-    if (success.some((s: ValidationStatus) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_NOT_REVOKED))
+    if (success.some((s) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_NOT_REVOKED))
       return 'not_revoked' as const
-    if (info.some((s: ValidationStatus) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_INACCESSIBLE))
+    if (info.some((s) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_INACCESSIBLE))
       return 'inaccessible' as const
-    if (info.some((s: ValidationStatus) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_SKIPPED))
+    if (info.some((s) => s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_OCSP_SKIPPED))
       return 'no_staple' as const
     return 'unknown' as const
   })()
