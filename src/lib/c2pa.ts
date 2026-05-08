@@ -35,8 +35,8 @@ const importModule = new Function('modulePath', 'return import(modulePath)') as 
 type ITL = { allowed: string; anchors: string }
 
 let c2paInstance: C2paInstance | null = null
-// Cached packaged-SDK instance used as fallback for thumbnail resolution when
-// the local WASM reader doesn't expose resourceToBytes.
+let packagedC2paInstance: C2paInstance | null = null
+// Cached raw packaged-SDK promise, shared between getPackagedC2pa() and enrichThumbnailsViaPackagedSdk().
 let packagedSdkPromise: ReturnType<typeof createC2pa> | null = null
 let mainTrustListPem: string | null = null
 let itl: ITL | null = null
@@ -188,6 +188,39 @@ async function fetchITL(): Promise<ITL> {
   }
 }
 
+/** Wrap a @contentauth/c2pa-web SDK instance as a C2paInstance (legacy JSON → crJSON). */
+function wrapPackagedSdk(sdk: Awaited<ReturnType<typeof createC2pa>>): C2paInstance {
+  return {
+    reader: {
+      fromBlob: async (format: string, file: Blob, settings?: Settings) => {
+        const reader = await sdk.reader.fromBlob(format, file, settings)
+        if (!reader) return null
+        return {
+          manifestStore: async () => {
+            const legacy = await reader.manifestStore() as Record<string, unknown>
+            return legacyToCrJson(legacy)
+          },
+          free: async () => { await reader.free() },
+          ...(reader.resourceToBytes && { resourceToBytes: reader.resourceToBytes.bind(reader) }),
+        }
+      },
+    },
+    getVersion: () => '@contentauth/c2pa-web v0.6.1',
+  }
+}
+
+/**
+ * Return the packaged SDK as a C2paInstance, lazily initialised and cached.
+ * Used for sidecar files and thumbnail fallback — never replaced by the local WASM.
+ */
+async function getPackagedC2pa(): Promise<C2paInstance> {
+  if (!packagedC2paInstance) {
+    if (!packagedSdkPromise) packagedSdkPromise = createC2pa({ wasmSrc: `${base}c2pa.wasm` })
+    packagedC2paInstance = wrapPackagedSdk(await packagedSdkPromise)
+  }
+  return packagedC2paInstance
+}
+
 /**
  * Initialize the C2PA SDK
  */
@@ -197,38 +230,7 @@ async function initC2pa(): Promise<C2paInstance> {
   }
 
   try {
-    c2paInstance = await createLocalC2pa()
-
-    if (!c2paInstance) {
-      const fallbackSdk = await createC2pa({
-        wasmSrc: `${base}c2pa.wasm`
-      })
-
-      c2paInstance = {
-        reader: {
-          fromBlob: async (format: string, file: Blob, settings?: Settings) => {
-            const reader = await fallbackSdk.reader.fromBlob(format, file, settings)
-
-            if (!reader) {
-              return null
-            }
-
-            return {
-              manifestStore: async () => {
-                const legacy = await reader.manifestStore() as Record<string, unknown>
-                return legacyToCrJson(legacy)
-              },
-              free: async () => {
-                await reader.free()
-              },
-              ...(reader.resourceToBytes && { resourceToBytes: reader.resourceToBytes.bind(reader) }),
-            }
-          },
-        },
-        getVersion: () => '@contentauth/c2pa-web v0.6.1',
-      }
-    }
-
+    c2paInstance = await createLocalC2pa() ?? await getPackagedC2pa()
     return c2paInstance
   } catch (error) {
     console.error('Failed to initialize C2PA SDK:', error)
@@ -470,10 +472,7 @@ async function enrichThumbnailsViaPackagedSdk(crJson: CrJson, file: Blob, mimeTy
   if (!hasUnresolved) return
 
   try {
-    if (!packagedSdkPromise) {
-      packagedSdkPromise = createC2pa({ wasmSrc: `${base}c2pa.wasm` })
-    }
-    const sdk = await packagedSdkPromise
+    const sdk = await getPackagedC2pa()
     const reader = await sdk.reader.fromBlob(mimeType, file)
     if (!reader || !reader.resourceToBytes) return
     try {
@@ -533,8 +532,13 @@ async function extractCrJsonWithMetadata(file: File, testCertificates: string[] 
   const mimeType = resolveMimeType(file)
   console.log('🔍 Starting file processing for:', file.name, 'Type:', file.type, mimeType !== file.type ? `(remapped to ${mimeType})` : '')
 
+  // Sidecar JUMBF files must go through the packaged SDK. The local WASM's
+  // read_manifest_store verifies data hash assertions against the sidecar bytes
+  // (not the actual asset), which always mismatches. The packaged SDK uses
+  // from_manifest_data internally, which reads the sidecar without an asset stream
+  // and correctly skips asset-hash assertion verification.
   console.log('Initializing C2PA SDK...')
-  const c2pa = await initC2pa()
+  const c2pa = mimeType === SIDECAR_MIME ? await getPackagedC2pa() : await initC2pa()
   console.log('✅ C2PA SDK initialized')
 
   const readManifestStore: ReadManifestStore = async (settings) => {
