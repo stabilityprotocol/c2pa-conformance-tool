@@ -9,7 +9,7 @@
   import FileUpload from './lib/FileUpload.svelte'
   import ReportViewer from './lib/ReportViewer.svelte'
   import CertificateManager from './lib/CertificateManager.svelte'
-  import { processFile, isSidecarFile } from './lib/c2pa'
+  import { processFile, processSidecarWithAsset, isSidecarFile } from './lib/c2pa'
   import { testTrustListFetch } from './lib/trustListTest'
   import type { ConformanceReport } from './lib/types'
 
@@ -227,8 +227,8 @@
       processingStatus = 'Initializing C2PA SDK...'
       await new Promise(resolve => setTimeout(resolve, 100))
 
-      processingStatus = 'Parsing manifest...'
-      report = await processFile(sidecar, testCertificates)
+      processingStatus = 'Validating manifest against asset...'
+      report = await processSidecarWithAsset(sidecar, asset, testCertificates)
 
       processingStatus = 'Building report...'
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -265,7 +265,7 @@
     try {
       await new Promise(resolve => setTimeout(resolve, 0))
       if (sidecarFile) {
-        report = await processFile(sidecarFile, testCertificates)
+        report = await processSidecarWithAsset(sidecarFile, selectedFile, testCertificates)
       } else {
         report = await processFile(selectedFile, testCertificates)
       }

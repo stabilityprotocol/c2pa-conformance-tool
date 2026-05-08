@@ -14,6 +14,12 @@ type ReaderHandle = {
 type C2paInstance = {
   reader: {
     fromBlob: (format: string, file: Blob, settings?: Settings) => Promise<ReaderHandle | null>
+    fromSidecarAndBlob?: (
+      sidecarBytes: Uint8Array,
+      assetFormat: string,
+      assetFile: Blob,
+      settings?: Settings,
+    ) => Promise<ReaderHandle | null>
   }
   getVersion?: () => Promise<string> | string
 }
@@ -22,6 +28,12 @@ type LocalC2paModule = {
   default: () => Promise<unknown>
   get_version: () => string
   read_manifest_store: (fileBytes: Uint8Array, format: string, settingsJson?: string) => Promise<string>
+  read_sidecar_manifest_store?: (
+    manifestBytes: Uint8Array,
+    assetBytes: Uint8Array,
+    assetFormat: string,
+    settingsJson?: string,
+  ) => Promise<string>
 }
 
 type ExtractedCrJsonResult = {
@@ -106,6 +118,28 @@ async function createLocalC2pa(): Promise<C2paInstance | null> {
           },
           free: async () => {},
         }),
+        ...(typeof localModule.read_sidecar_manifest_store === 'function'
+          ? {
+              fromSidecarAndBlob: async (
+                sidecarBytes: Uint8Array,
+                assetFormat: string,
+                assetFile: Blob,
+                settings?: Settings,
+              ) => ({
+                manifestStore: async () => {
+                  const assetBytes = new Uint8Array(await assetFile.arrayBuffer())
+                  const json = await localModule.read_sidecar_manifest_store!(
+                    sidecarBytes,
+                    assetBytes,
+                    assetFormat,
+                    toLocalSettingsJson(settings),
+                  )
+                  return parseCrJson(json)
+                },
+                free: async () => {},
+              }),
+            }
+          : {}),
       },
       getVersion: () => localModule.get_version(),
     }
@@ -603,6 +637,64 @@ function buildConformanceReport(extracted: ExtractedCrJsonResult): ConformanceRe
 
 export async function processFile(file: File, testCertificates: string[] = []): Promise<ConformanceReport> {
   return buildConformanceReport(await extractCrJsonWithMetadata(file, testCertificates))
+}
+
+async function extractSidecarWithAssetCrJsonWithMetadata(
+  sidecar: File,
+  asset: File,
+  testCertificates: string[] = [],
+): Promise<ExtractedCrJsonResult> {
+  const c2pa = await initC2pa()
+  const fromSidecarAndBlob = c2pa.reader.fromSidecarAndBlob
+  if (!fromSidecarAndBlob) {
+    throw new Error('read_sidecar_manifest_store is not available in the local WASM build.')
+  }
+
+  const assetMimeType = resolveMimeType(asset)
+  const sidecarBytes = new Uint8Array(await sidecar.arrayBuffer())
+
+  const readManifestStore: ReadManifestStore = async (settings) => {
+    const reader = await fromSidecarAndBlob(sidecarBytes, assetMimeType, asset, settings)
+    if (!reader) return null
+    try {
+      const crJson = await reader.manifestStore()
+      if (reader.resourceToBytes) {
+        await enrichThumbnails(crJson, reader.resourceToBytes.bind(reader))
+      } else {
+        await enrichThumbnailsViaPackagedSdk(crJson, asset, assetMimeType)
+      }
+      return crJson
+    } finally {
+      await reader.free()
+    }
+  }
+
+  try {
+    return await runTrustValidationFlow(
+      readManifestStore,
+      testCertificates,
+      `No C2PA manifest could be read from sidecar "${sidecar.name}" paired with "${asset.name}".`,
+    )
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('HashMismatch') || msg.includes('dataHash') || msg.includes('bmffHash')) {
+      throw new Error(
+        `Asset hash mismatch: the sidecar's hash bindings don't match "${asset.name}". ` +
+        `The sidecar and asset are probably not a matched pair.`,
+      )
+    }
+    throw error
+  }
+}
+
+export async function processSidecarWithAsset(
+  sidecar: File,
+  asset: File,
+  testCertificates: string[] = [],
+): Promise<ConformanceReport> {
+  return buildConformanceReport(
+    await extractSidecarWithAssetCrJsonWithMetadata(sidecar, asset, testCertificates),
+  )
 }
 
 /**
