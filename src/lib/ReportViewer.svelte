@@ -32,6 +32,8 @@
   export let report: ConformanceReport
   export let usedTestCertificates = false
   export let file: File | null = null
+  export let validationMode: 'embedded' | 'sidecar+asset' | 'sidecar-only' = 'embedded'
+  export let sidecarFile: File | null = null
 
   const dispatch = createEventDispatcher<{
     newfile: void
@@ -135,7 +137,7 @@
   $: activeManifest = report.manifests?.[0] ?? null
 
   // Read from crJSON locations via getters
-  $: assertionsList = activeManifest ? getAssertionsList(activeManifest).filter(a => !a.label.includes('hash.data')) : []
+  $: assertionsList = activeManifest ? getAssertionsList(activeManifest) : []
   $: ingredientsList = activeManifest ? getIngredientsFromManifest(activeManifest) : []
   $: signatureInfo = activeManifest ? getSignatureInfo(activeManifest) : undefined
   $: claimInfo = activeManifest ? getClaimInfo(activeManifest) : undefined
@@ -160,8 +162,42 @@
   // Get validation results from crJSON (document-level or per-manifest from c2pa-rs)
   $: validationResults = getActiveManifestValidationStatus(report)
 
-  // Get all validation failures from the report (including active and ingredients)
-  $: failures = report ? getAllValidationFailures(report) : []
+  // In sidecar-only mode (lone .c2pa, no asset), the data-hash assertions
+  // covering the asset cannot be verified (there is no asset to hash). Suppress
+  // those mismatches from the failure list and surface them as informational
+  // skips. All other failures (signature, certificate trust, etc.) remain.
+  const ASSET_BINDING_FAILURE_CODES = new Set([
+    'assertion.dataHash.mismatch',
+    'assertion.bmffHash.mismatch',
+    'assertion.boxHash.mismatch',
+  ])
+
+  function isAssetBindingFailure(code: string): boolean {
+    return ASSET_BINDING_FAILURE_CODES.has(code)
+  }
+
+  // True when the synthesized soft-vs-hard binding cross-check succeeded —
+  // proves internal consistency without the asset, so the placeholder
+  // "asset not provided" row becomes redundant.
+  $: softHardBindingMatched = (() => {
+    if (!report?.manifests) return false
+    for (const m of report.manifests) {
+      const perManifest = m.validationResults as { success?: { code: string }[] } | undefined
+      if (perManifest?.success?.some((s) => s.code === 'assertion.softBinding.matchesHardBinding')) {
+        return true
+      }
+    }
+    const docActive = (report as { validationResults?: { activeManifest?: { success?: { code: string }[] } } }).validationResults?.activeManifest
+    return docActive?.success?.some((s) => s.code === 'assertion.softBinding.matchesHardBinding') ?? false
+  })()
+
+  // Get all validation failures from the report (including active and ingredients),
+  // filtered for sidecar-only mode where asset-binding checks cannot run.
+  $: failures = report
+    ? getAllValidationFailures(report).filter(
+        (f) => validationMode !== 'sidecar-only' || !isAssetBindingFailure(f.code),
+      )
+    : []
 
   // Check if trusted from crJSON validationResults (must have trusted code AND no failures)
   $: isTrusted = (validationResults?.success?.some((status) =>
@@ -196,7 +232,8 @@
         s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED ||
         s.code === VALIDATION_STATUS.TIMESTAMP_TRUSTED ||
         s.code === VALIDATION_STATUS.CLAIM_SIGNATURE_VALIDATED ||
-        s.code === 'timeStamp.validated'
+        s.code === 'timeStamp.validated' ||
+        s.code === 'assertion.softBinding.matchesHardBinding'
       ).map((s) => {
         const isInterim = s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED && usedITL
         return {
@@ -207,19 +244,36 @@
         }
       }) ?? []
 
-      const failure: ValidationStatusItem[] = status?.failure?.map((f) => ({
-        code: f.code,
-        success: false,
-        isInterim: false,
-        explanation: getFailureDescription(f.code, f.explanation)
-      })) ?? []
+      const rawFailures = status?.failure ?? []
+      const failure: ValidationStatusItem[] = rawFailures
+        .filter((f) => validationMode !== 'sidecar-only' || !isAssetBindingFailure(f.code))
+        .map((f) => ({
+          code: f.code,
+          success: false,
+          isInterim: false,
+          explanation: getFailureDescription(f.code, f.explanation)
+        }))
 
-      const informational: ValidationStatusItem[] = status?.informational?.map((inf) => ({
-        code: inf.code,
-        success: true,
-        isInformational: true,
-        explanation: inf.explanation ?? 'Informational'
-      })) ?? []
+      const skippedAssetBindings: ValidationStatusItem[] = (validationMode === 'sidecar-only' && !softHardBindingMatched)
+        ? rawFailures
+            .filter((f) => isAssetBindingFailure(f.code))
+            .map((f) => ({
+              code: f.code,
+              success: true,
+              isInformational: true,
+              explanation: 'Skipped — asset not provided. Drop the .c2pa sidecar together with its source asset to verify the hard-binding hash.',
+            }))
+        : []
+
+      const informational: ValidationStatusItem[] = [
+        ...skippedAssetBindings,
+        ...(status?.informational?.map((inf) => ({
+          code: inf.code,
+          success: true,
+          isInformational: true,
+          explanation: inf.explanation ?? 'Informational'
+        })) ?? []),
+      ]
 
       return {
         label: m.label,
@@ -590,6 +644,31 @@
                 <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
               </svg>
               Test Mode
+            </span>
+          </div>
+        {/if}
+        {#if validationMode === 'sidecar+asset'}
+          <div class="mt-2">
+            <span
+              class="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-800 dark:text-indigo-300 rounded-full text-xs font-semibold"
+              title={sidecarFile ? `External JUMBF manifest "${sidecarFile.name}" per C2PA §17. Hard binding verified against the paired asset.` : 'External JUMBF manifest per C2PA §17. Hard binding verified against the paired asset.'}
+            >
+              <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z" />
+              </svg>
+              Sidecar + Asset
+            </span>
+          </div>
+        {:else if validationMode === 'sidecar-only'}
+          <div class="mt-2">
+            <span
+              class="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 rounded-full text-xs font-semibold"
+              title="Sidecar checked in isolation — signature, certificate chain, and JUMBF structure validated. Asset hard binding (assertion.dataHash) cannot be verified without the original asset."
+            >
+              <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              </svg>
+              Sidecar Integrity Only
             </span>
           </div>
         {/if}

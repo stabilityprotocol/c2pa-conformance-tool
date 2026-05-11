@@ -69,6 +69,37 @@ pub async fn read_sidecar_manifest_store(
     Ok(reader.crjson())
 }
 
+/// Inspect a detached (`.c2pa`) manifest store without an asset.
+///
+/// Used when the user drops a sidecar without the matching asset. We feed
+/// the manifest bytes to `with_manifest_data_and_stream_async` paired with
+/// an empty stream. The signature, certificate chain, and JUMBF structure
+/// are validated normally; the asset-hash bindings will report
+/// `assertion.dataHash.mismatch` because there is no asset to bind to —
+/// that is expected, and callers should label this as an integrity-only
+/// inspection in the UI.
+///
+/// * `manifest_bytes` - raw bytes of the `.c2pa` sidecar (JUMBF manifest store).
+/// * `settings_json` - trust settings (same shape as `read_manifest_store`).
+#[wasm_bindgen]
+pub async fn read_sidecar_integrity_only(
+    manifest_bytes: Vec<u8>,
+    settings_json: Option<String>,
+) -> Result<String, JsValue> {
+    let context = build_context(settings_json)?;
+
+    let reader = Reader::from_context(context)
+        .with_manifest_data_and_stream_async(
+            &manifest_bytes,
+            "application/octet-stream",
+            Cursor::new(Vec::<u8>::new()),
+        )
+        .await
+        .map_err(|e| JsValue::from_str(&format!("Failed to inspect sidecar manifest: {e}")))?;
+
+    Ok(reader.crjson())
+}
+
 /// Get version information
 #[wasm_bindgen]
 pub fn get_version() -> String {

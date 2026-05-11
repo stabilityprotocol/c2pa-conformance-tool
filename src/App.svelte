@@ -688,6 +688,8 @@
           {report}
           {usedTestCertificates}
           file={selectedFile}
+          {validationMode}
+          {sidecarFile}
         />
       {/if}
     </div>
