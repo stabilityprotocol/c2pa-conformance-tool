@@ -63,7 +63,6 @@
     bind:this={fileInput}
     type="file"
     on:change={handleFileInput}
-    accept="image/*,video/*,audio/*,.pdf,.dng,.arw,.cr2,.cr3,.nef,.orf,.rw2,.c2pa,application/c2pa"
     class="hidden"
   />
 {:else}
@@ -93,7 +92,7 @@
         {dragOver ? 'Drop it here!' : 'Drop a file or click to browse'}
       </p>
       <p class="text-base text-gray-600 dark:text-gray-400 text-center max-w-md mx-auto">
-        Supports images, videos, audio, PDFs, and standalone <code class="font-mono text-sm">.c2pa</code> sidecar files
+        Drop a media file with embedded provenance, a standalone <code class="font-mono text-sm">.c2pa</code> sidecar, or any asset paired with its <code class="font-mono text-sm">.c2pa</code> sidecar.
       </p>
 
       <!-- File type badges -->
@@ -103,6 +102,7 @@
         <span class="px-3 py-1 bg-gray-100 group-hover:bg-white dark:group-hover:bg-gray-600 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium transition duration-200">Audio</span>
         <span class="px-3 py-1 bg-gray-100 group-hover:bg-white dark:group-hover:bg-gray-600 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium transition duration-200">PDFs</span>
         <span class="px-3 py-1 bg-gray-100 group-hover:bg-white dark:group-hover:bg-gray-600 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium transition duration-200">.c2pa sidecars</span>
+        <span class="px-3 py-1 bg-gray-100 group-hover:bg-white dark:group-hover:bg-gray-600 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs font-medium transition duration-200">any asset + sidecar</span>
       </div>
     </div>
 
@@ -110,7 +110,6 @@
       bind:this={fileInput}
       type="file"
       on:change={handleFileInput}
-      accept="image/*,video/*,audio/*,.pdf,.dng,.arw,.cr2,.cr3,.nef,.orf,.rw2,.c2pa,application/c2pa"
       multiple
       class="hidden"
     />

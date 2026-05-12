@@ -348,9 +348,11 @@ export function resolveMimeType(file: File): string {
   const mapped = MIME_TYPE_MAP[file.type]
   if (mapped) return mapped
   if (file.type && file.type !== 'application/octet-stream') return file.type
-  // Fall back to extension-based detection
+  // Fall back to extension-based detection, then to generic bytes.
+  // `application/octet-stream` lets c2pa-rs hash arbitrary asset bytes for
+  // sidecar+asset validation (c2pa.hash.data is format-agnostic).
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
-  return EXTENSION_MIME_MAP[ext] ?? file.type
+  return EXTENSION_MIME_MAP[ext] ?? (file.type || 'application/octet-stream')
 }
 
 /**
@@ -638,7 +640,7 @@ async function extractCrJsonWithMetadata(file: File, testCertificates: string[] 
     console.error('❌ Error in processFile:', error)
     const msg = error instanceof Error ? error.message : String(error)
     if (msg.includes('UnsupportedFormatError') || msg.includes('Unsupported format')) {
-      throw new Error(`Unsupported file format (${mimeType}). Supported formats include JPEG, PNG, WebP, AVIF, MP4, MOV, MP3, WAV, and PDF.`)
+      throw new Error(`This file format (${mimeType}) cannot carry embedded C2PA provenance. To validate provenance for this asset, drop it together with its companion .c2pa sidecar file.`)
     }
     if (msg.includes('InvalidAsset') || msg.includes('Box size extends beyond') || msg.includes('box size')) {
       throw new Error(`Could not parse this file. It may be corrupted, use an unsupported codec, or the C2PA manifest may be malformed.`)
