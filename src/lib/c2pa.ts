@@ -572,116 +572,6 @@ async function enrichThumbnails(crJson: CrJson, resourceToBytes: (uri: string) =
   }
 }
 
-/**
- * Strip the `b64'…'` envelope that c2pa-rs adds around byte-valued JSON fields
- * (hash/pad/signature) when serialising CBOR assertions. UCFR-style
- * soft-binding values arrive as plain base64 inside the JSON-encoded assertion
- * and need no stripping. Returns the base64 payload string or null.
- */
-function unwrapBase64(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  if (trimmed.startsWith("b64'")) {
-    const end = trimmed.endsWith("'") ? trimmed.length - 1 : trimmed.length
-    return trimmed.slice(4, end)
-  }
-  return trimmed
-}
-
-/**
- * In sidecar-only mode the asset bytes are absent, so c2pa-rs cannot verify
- * the `c2pa.hash.data` hard-binding. Some signers (e.g. UCFR) also publish a
- * soft-binding whose `value` is the byte-identical SHA-256 of the asset
- * (alg `org.monolith.sha256`) — when that's present we can prove the manifest
- * is internally self-consistent by comparing the soft-binding's `value` to
- * the hard-binding's `hash`. This cross-check does NOT prove asset integrity
- * (an attacker who controls the manifest can set both fields). It only
- * proves the signer claimed the same hash in both assertions, which catches
- * accidental drift between the two bindings.
- *
- * Skipped silently when:
- *   - either assertion is missing;
- *   - the soft-binding algorithm is perceptual (pHash, pdq, etc.) — bytes
- *     are not expected to match by design;
- *   - we can't parse either value.
- */
-function checkSoftHardBindingConsistency(crJson: CrJson): { code: string; success: boolean; explanation: string } | null {
-  const manifest = crJson.manifests?.[0]
-  const assertions = manifest?.assertions as Record<string, Record<string, unknown>> | undefined
-  if (!assertions) return null
-
-  const hard = assertions['c2pa.hash.data']
-  const soft = assertions['c2pa.soft-binding']
-  if (!hard || !soft) return null
-
-  const softAlg = String(soft.alg ?? '').toLowerCase()
-  const isCryptoHashSoftBinding =
-    softAlg === 'sha256' ||
-    softAlg === 'sha512' ||
-    softAlg.endsWith('.sha256') ||
-    softAlg.endsWith('.sha512')
-  if (!isCryptoHashSoftBinding) return null
-
-  const hardB64 = unwrapBase64(hard.hash)
-  const softB64 = unwrapBase64(soft.value)
-  if (!hardB64 || !softB64) return null
-
-  const match = hardB64 === softB64
-  return match
-    ? {
-        code: 'assertion.softBinding.matchesHardBinding',
-        success: true,
-        explanation: `Soft-binding (${soft.alg}) value matches the hard-binding hash byte-for-byte. The signer asserts the same digest in both bindings — internal consistency confirmed without the asset.`,
-      }
-    : {
-        code: 'assertion.softBinding.mismatch',
-        success: false,
-        explanation: `Soft-binding (${soft.alg}) value does not match the hard-binding hash. The signer's two bindings disagree on the asset digest — the manifest is internally inconsistent.`,
-      }
-}
-
-/**
- * Append a synthesized validation status row to the active manifest's
- * validationResults. We push into both `report.validationResults.activeManifest`
- * (legacy/document-level location) and `manifests[0].validationResults`
- * (per-manifest location) so every reader path picks it up.
- */
-function appendSyntheticStatus(
-  crJson: CrJson,
-  status: { code: string; success: boolean; explanation: string },
-): void {
-  const bucket = status.success ? 'success' : 'failure'
-  const row = { code: status.code, explanation: status.explanation }
-
-  type ValidationResultsBag = {
-    success?: { code: string; explanation?: string }[]
-    failure?: { code: string; explanation?: string }[]
-    informational?: { code: string; explanation?: string }[]
-    activeManifest?: {
-      success?: { code: string; explanation?: string }[]
-      failure?: { code: string; explanation?: string }[]
-      informational?: { code: string; explanation?: string }[]
-    }
-  }
-
-  const docResults = (crJson as unknown as { validationResults?: ValidationResultsBag }).validationResults ?? {}
-  ;(crJson as unknown as { validationResults: ValidationResultsBag }).validationResults = docResults
-  const active = docResults.activeManifest ?? {}
-  docResults.activeManifest = active
-  const list = (active[bucket] ?? []) as { code: string; explanation?: string }[]
-  list.push(row)
-  active[bucket] = list
-
-  const manifest = crJson.manifests?.[0] as { validationResults?: ValidationResultsBag } | undefined
-  if (manifest) {
-    const perManifest = manifest.validationResults ?? {}
-    manifest.validationResults = perManifest
-    const perList = (perManifest[bucket] ?? []) as { code: string; explanation?: string }[]
-    perList.push(row)
-    perManifest[bucket] = perList
-  }
-}
-
 async function extractCrJsonWithMetadata(file: File, testCertificates: string[] = []): Promise<ExtractedCrJsonResult> {
   // JSON sidecars are crJSON reports — parse them directly without the SDK.
   const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
@@ -742,15 +632,6 @@ async function extractCrJsonWithMetadata(file: File, testCertificates: string[] 
         ? 'No C2PA manifest could be read from this sidecar. It may be corrupted or not a valid .c2pa file.'
         : 'No C2PA manifest found in this file',
     )
-
-    // Sidecar-only mode: synthesize a soft-vs-hard-binding consistency check
-    // since c2pa-rs cannot verify the asset hard-binding without the asset.
-    if (mimeType === SIDECAR_MIME) {
-      const consistency = checkSoftHardBindingConsistency(result.crJson)
-      if (consistency) {
-        appendSyntheticStatus(result.crJson, consistency)
-      }
-    }
 
     return result
   } catch (error) {
