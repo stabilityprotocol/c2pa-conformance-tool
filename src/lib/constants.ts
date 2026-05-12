@@ -71,7 +71,6 @@ export const VALIDATION_FAILURE_DESCRIPTIONS: Record<string, string> = {
   'assertion.hashedURI.mismatch': 'An assertion hash did not match (possible tampering of assertion data).',
   'assertion.dataHash.mismatch': 'An assertion data hash did not match.',
   'assertion.bmffHash.mismatch': 'BMFF hash mismatch. The media content may have been tampered with.',
-  'assertion.softBinding.mismatch': 'Soft-binding value does not match the hard-binding hash. The signer\'s two bindings disagree on the asset digest.',
   'manifest.multipleActive': 'Multiple active manifests found.',
   'manifest.update.invalid': 'Invalid manifest update.',
   'algorithm.unsupported': 'Unsupported cryptographic algorithm.',

@@ -176,21 +176,6 @@
     return ASSET_BINDING_FAILURE_CODES.has(code)
   }
 
-  // True when the synthesized soft-vs-hard binding cross-check succeeded —
-  // proves internal consistency without the asset, so the placeholder
-  // "asset not provided" row becomes redundant.
-  $: softHardBindingMatched = (() => {
-    if (!report?.manifests) return false
-    for (const m of report.manifests) {
-      const perManifest = m.validationResults as { success?: { code: string }[] } | undefined
-      if (perManifest?.success?.some((s) => s.code === 'assertion.softBinding.matchesHardBinding')) {
-        return true
-      }
-    }
-    const docActive = (report as { validationResults?: { activeManifest?: { success?: { code: string }[] } } }).validationResults?.activeManifest
-    return docActive?.success?.some((s) => s.code === 'assertion.softBinding.matchesHardBinding') ?? false
-  })()
-
   // Get all validation failures from the report (including active and ingredients),
   // filtered for sidecar-only mode where asset-binding checks cannot run.
   $: failures = report
@@ -232,8 +217,7 @@
         s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED ||
         s.code === VALIDATION_STATUS.TIMESTAMP_TRUSTED ||
         s.code === VALIDATION_STATUS.CLAIM_SIGNATURE_VALIDATED ||
-        s.code === 'timeStamp.validated' ||
-        s.code === 'assertion.softBinding.matchesHardBinding'
+        s.code === 'timeStamp.validated'
       ).map((s) => {
         const isInterim = s.code === VALIDATION_STATUS.SIGNING_CREDENTIAL_TRUSTED && usedITL
         return {
@@ -254,7 +238,7 @@
           explanation: getFailureDescription(f.code, f.explanation)
         }))
 
-      const skippedAssetBindings: ValidationStatusItem[] = (validationMode === 'sidecar-only' && !softHardBindingMatched)
+      const skippedAssetBindings: ValidationStatusItem[] = validationMode === 'sidecar-only'
         ? rawFailures
             .filter((f) => isAssetBindingFailure(f.code))
             .map((f) => ({
@@ -740,7 +724,6 @@
     bind:this={fileInput}
     type="file"
     on:change={handleFileInput}
-    accept="image/*,video/*,audio/*,.pdf,.dng,.arw,.cr2,.cr3,.nef,.orf,.rw2"
     class="hidden"
   />
 
